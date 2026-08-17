@@ -1,5 +1,6 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 mod app;
+mod pi_web;
 mod util;
 
 use std::sync::{
@@ -208,6 +209,8 @@ pub fn run_app() {
     let multi_window = pake_config.multi_window;
     let _enable_find = pake_config.windows[0].enable_find;
     let startup_window_revealed = Arc::new(AtomicBool::new(false));
+    let pi_web_process: pi_web::OwnedPiWeb = Arc::new(std::sync::Mutex::new(None));
+    let pi_web_process_for_setup = pi_web_process.clone();
 
     let window_state_plugin = WindowStatePlugin::default()
         .with_state_flags(if init_fullscreen {
@@ -303,6 +306,18 @@ pub fn run_app() {
             webview_navigate,
         ])
         .setup(move |app| {
+            let owned_process = match pi_web::start_or_reuse() {
+                Ok(process) => process,
+                Err(error) => {
+                    pi_web::show_startup_error(&error);
+                    app.handle().exit(1);
+                    return Ok(());
+                }
+            };
+            if let Ok(mut process) = pi_web_process_for_setup.lock() {
+                *process = owned_process;
+            }
+
             app.manage(MultiWindowState::new(
                 pake_config.clone(),
                 tauri_config.clone(),
@@ -394,14 +409,13 @@ pub fn run_app() {
             eprintln!("[Pake] Fatal error while building Tauri application: {error}");
             std::process::exit(1);
         })
-        .run(move |_app, _event| {
+        .run(move |_app, _event| match _event {
             // Handle macOS dock icon click to reopen hidden window
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen {
+            tauri::RunEvent::Reopen {
                 has_visible_windows,
                 ..
-            } = _event
-            {
+            } => {
                 if !has_visible_windows {
                     if let Some(window) = _app.get_webview_window("pake") {
                         cancel_startup_reveal(&reopen_revealed);
@@ -411,6 +425,8 @@ pub fn run_app() {
                     }
                 }
             }
+            tauri::RunEvent::Exit => pi_web::terminate_owned(&pi_web_process),
+            _ => {}
         });
 }
 

@@ -1,16 +1,17 @@
 {
   "windows": [
     {
-      "url": "https://weekly.tw93.fun/en",
+      "url": "http://127.0.0.1:30141/",
       "url_type": "web",
       "hide_title_bar": true,
       "hide_window_decorations": false,
       "fullscreen": false,
-      "width": 1200,
-      "height": 780,
+      "width": 1280,
+      "height": 820,
       "resizable": true,
       "always_on_top": false,
       "dark_mode": false,
+      "title": "",
       "activation_shortcut": "",
       "disabled_web_shortcuts": false,
       "hide_on_close": true,

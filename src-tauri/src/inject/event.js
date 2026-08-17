@@ -640,10 +640,20 @@ function openAuthNavigation(originalWindowOpen, url, name, specs) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  const pakeConfig = window["pakeConfig"] || {};
+  if (
+    !document.getElementById("pake-top-dom") &&
+    hasImmersiveHeader(pakeConfig)
+  ) {
+    const topDom = document.createElement("div");
+    topDom.id = "pake-top-dom";
+    topDom.setAttribute("data-tauri-drag-region", "");
+    document.body.appendChild(topDom);
+  }
+
   const tauri = window.__TAURI__;
   const appWindow = tauri.window.getCurrentWindow();
   const invoke = tauri.core.invoke;
-  const pakeConfig = window["pakeConfig"] || {};
   const forceInternalNavigation = pakeConfig.force_internal_navigation === true;
   const internalUrlRegex = pakeConfig.internal_url_regex || "";
   let internalUrlPattern = null;
@@ -653,12 +663,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       console.error("[Pake] Invalid internal_url_regex pattern:", e);
     }
-  }
-
-  if (!document.getElementById("pake-top-dom") && hasImmersiveHeader()) {
-    const topDom = document.createElement("div");
-    topDom.id = "pake-top-dom";
-    document.body.appendChild(topDom);
   }
 
   const domEl = document.getElementById("pake-top-dom");
