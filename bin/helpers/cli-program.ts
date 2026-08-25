@@ -2,12 +2,8 @@ import chalk from 'chalk';
 import { program, Option } from 'commander';
 import packageJson from '../../package.json';
 import { DEFAULT_PAKE_OPTIONS as DEFAULT } from '../defaults';
-import {
-  validateNumberInput,
-  validateServerPort,
-  validateServerTimeout,
-  validateUrlInput,
-} from '../utils/validate';
+import { addManagedLocalAppOptions } from '../extensions/managed-local-app';
+import { validateNumberInput, validateUrlInput } from '../utils/validate';
 
 export function getCliProgram() {
   const { green, yellow } = chalk;
@@ -18,7 +14,7 @@ ${green('|  __/ (_| |   <  __/')}  ${yellow('https://github.com/tw93/pake')}
 ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with Rust.')}
 `;
 
-  return program
+  const configuredProgram = program
     .addHelpText('beforeAll', logo)
     .usage(`[url] [options]`)
     .helpOption('-h, --help', 'Show all CLI options')
@@ -51,22 +47,6 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
     )
     .option('--fullscreen', 'Start in full screen', DEFAULT.fullscreen)
     .option('--hide-title-bar', 'For Mac, hide title bar', DEFAULT.hideTitleBar)
-    .option(
-      '--traffic-light-x <number>',
-      'macOS traffic light horizontal position',
-      validateNumberInput,
-    )
-    .option(
-      '--traffic-light-y <number>',
-      'macOS traffic light vertical position',
-      validateNumberInput,
-    )
-    .option(
-      '--drag-region-height <number>',
-      'Height of the draggable top strip in pixels',
-      validateNumberInput,
-      DEFAULT.dragRegionHeight,
-    )
     .option(
       '--hide-window-decorations',
       'Hide native window decorations on Windows and Linux',
@@ -328,22 +308,9 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
       new Option('--microphone', 'Request microphone permission on macOS')
         .default(DEFAULT.microphone)
         .hideHelp(),
-    )
-    .option(
-      '--server-port <number>',
-      'Local server port to probe and manage',
-      validateServerPort,
-    )
-    .option(
-      '--server-command <string>',
-      'Shell command that starts the local server',
-    )
-    .option(
-      '--server-timeout <seconds>',
-      'Seconds to wait for the local server',
-      validateServerTimeout,
-      DEFAULT.serverTimeout,
-    )
+    );
+
+  return addManagedLocalAppOptions(configuredProgram, DEFAULT)
     .version(packageJson.version, '-v, --version')
     .configureHelp({
       sortSubcommands: true,

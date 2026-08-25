@@ -1,7 +1,14 @@
+import type {
+  ManagedLocalAppCliOptions,
+  ManagedLocalAppResolvedOptions,
+  ManagedPakeConfig,
+  ManagedWindowConfig,
+} from './extensions/managed-local-app.js';
+
 export type SupportedPlatform = 'win32' | 'darwin' | 'linux';
 export type TauriPlatform = 'windows' | 'macos' | 'linux';
 
-export interface PakeCliOptions {
+export interface PakeCliOptions extends ManagedLocalAppCliOptions {
   // Application name
   name?: string;
 
@@ -31,13 +38,6 @@ export interface PakeCliOptions {
 
   // Enable immersive header, default false. macOS only.
   hideTitleBar: boolean;
-
-  // macOS traffic light position. Both coordinates must be set together.
-  trafficLightX?: number;
-  trafficLightY?: number;
-
-  // Height of the draggable strip used by immersive/frameless windows.
-  dragRegionHeight: number;
 
   // Hide native window decorations, default false. Windows and Linux only.
   hideWindowDecorations: boolean;
@@ -163,16 +163,11 @@ export interface PakeCliOptions {
 
   // Request microphone entitlement on macOS, default false
   microphone: boolean;
-
-  // Optional local server managed by the packaged application.
-  serverPort?: number;
-  serverCommand?: string;
-  serverTimeout: number;
 }
 
-export interface PakeAppOptions extends PakeCliOptions {
+export interface PakeAppOptions
+  extends PakeCliOptions, ManagedLocalAppResolvedOptions {
   identifier: string;
-  serverHost?: string;
 }
 
 export interface PlatformSpecific<T> {
@@ -181,7 +176,7 @@ export interface PlatformSpecific<T> {
   windows: T;
 }
 
-export interface WindowConfig {
+export interface WindowConfig extends ManagedWindowConfig {
   url: string;
   hide_title_bar: boolean;
   hide_window_decorations: boolean;
@@ -209,19 +204,9 @@ export interface WindowConfig {
   min_height: number;
   ignore_certificate_errors: boolean;
   new_window: boolean;
-  traffic_light_x?: number;
-  traffic_light_y?: number;
-  drag_region_height: number;
 }
 
-export interface ServerConfig {
-  host: string;
-  port: number;
-  command: string;
-  timeout: number;
-}
-
-export interface PakeConfig {
+export interface PakeConfig extends ManagedPakeConfig {
   windows: WindowConfig[];
   user_agent: PlatformSpecific<string>;
   system_tray: PlatformSpecific<boolean>;
@@ -230,7 +215,6 @@ export interface PakeConfig {
   basic_auth: boolean;
   multi_instance: boolean;
   multi_window: boolean;
-  server?: ServerConfig;
   inject?: string[];
 }
 

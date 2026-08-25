@@ -1,9 +1,12 @@
-use crate::app::config::ServerConfig;
+use serde::{Deserialize, Serialize};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::AppHandle;
+use tauri::{
+    plugin::{Builder as PluginBuilder, TauriPlugin},
+    AppHandle, RunEvent, Wry,
+};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 #[cfg(unix)]
@@ -32,7 +35,20 @@ const PROBE_INTERVAL: Duration = Duration::from_millis(150);
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(500);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 
-pub type OwnedServer = Arc<Mutex<Option<ManagedServer>>>;
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub host: String,
+    pub port: u16,
+    pub command: String,
+    #[serde(default = "default_server_timeout")]
+    pub timeout: u64,
+}
+
+fn default_server_timeout() -> u64 {
+    30
+}
+
+type OwnedServer = Arc<Mutex<Option<ManagedServer>>>;
 
 #[derive(Debug)]
 pub struct ManagedServer {
@@ -330,20 +346,45 @@ pub fn start_or_reuse(config: Option<&ServerConfig>) -> Result<Option<ManagedSer
     ))
 }
 
-pub fn terminate_owned(server: &OwnedServer) {
-    if let Ok(mut server) = server.lock() {
-        server.take();
-    }
+fn terminate_owned(server: &OwnedServer) {
+    let mut server = server
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    server.take();
 }
 
-pub fn show_startup_error(app: &AppHandle, message: String) {
+pub fn plugin(config: Option<ServerConfig>) -> TauriPlugin<Wry> {
+    let owned_server: OwnedServer = Arc::new(Mutex::new(None));
+    let setup_server = owned_server.clone();
+
+    PluginBuilder::new("managed-local-server")
+        .setup(move |app, _api| match start_or_reuse(config.as_ref()) {
+            Ok(server) => {
+                *setup_server
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = server;
+                Ok(())
+            }
+            Err(error) => {
+                show_startup_error(app, &error);
+                Err(std::io::Error::other(error).into())
+            }
+        })
+        .on_event(move |_app, event| {
+            if matches!(event, RunEvent::Exit) {
+                terminate_owned(&owned_server);
+            }
+        })
+        .build()
+}
+
+fn show_startup_error(app: &AppHandle, message: &str) {
     eprintln!("[Pake] Local server startup failed: {message}");
-    let app_handle = app.clone();
     app.dialog()
         .message(message)
         .title("Pake could not start the local server")
         .kind(MessageDialogKind::Error)
-        .show(move |_| app_handle.exit(1));
+        .blocking_show();
 }
 
 #[cfg(test)]
@@ -418,7 +459,8 @@ mod tests {
             .unwrap()
             .expect("test helper should be owned");
         assert!(port_is_listening(&config(port, String::new(), 1)).unwrap());
-        drop(server);
+        let owned_server = Arc::new(Mutex::new(Some(server)));
+        terminate_owned(&owned_server);
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {

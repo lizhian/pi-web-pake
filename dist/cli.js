@@ -12,10 +12,10 @@ import crypto from 'crypto';
 import ora from 'ora';
 import fs from 'fs';
 import fs$1 from 'fs/promises';
+import { InvalidArgumentError, program as program$1, Option } from 'commander';
+import * as psl from 'psl';
 import { dir } from 'tmp-promise';
 import { fileTypeFromBuffer } from 'file-type';
-import * as psl from 'psl';
-import { InvalidArgumentError, program as program$1, Option } from 'commander';
 
 var name = "pake-cli";
 var version = "3.15.7";
@@ -607,6 +607,279 @@ function resolveLinuxBundleTargets(targets) {
     return { bundleTargets, hasValidTarget: requested.length > 0 };
 }
 
+// Extracts the domain from a given URL.
+function getDomain(inputUrl) {
+    try {
+        const url = new URL(inputUrl);
+        // Use PSL to parse domain names.
+        const parsed = psl.parse(url.hostname);
+        // If domain is available, split it and return the SLD.
+        if ('domain' in parsed && parsed.domain) {
+            return parsed.domain.split('.')[0];
+        }
+        else {
+            return null;
+        }
+    }
+    catch (error) {
+        return null;
+    }
+}
+// Appends 'https://' protocol to the URL if not present.
+function appendProtocol(inputUrl) {
+    try {
+        new URL(inputUrl);
+        return inputUrl;
+    }
+    catch {
+        return `https://${inputUrl}`;
+    }
+}
+// Normalizes the URL by ensuring it has a protocol and is valid.
+function normalizeUrl(urlToNormalize) {
+    const urlWithProtocol = appendProtocol(urlToNormalize);
+    try {
+        new URL(urlWithProtocol);
+        return urlWithProtocol;
+    }
+    catch (err) {
+        throw new Error(`Your url "${urlWithProtocol}" is invalid: ${err.message}`);
+    }
+}
+// Compiles a comma-separated domain list into a regex source for
+// internal_url_regex. Each domain is escaped and matched against the URL host
+// and its subdomains so path or query text cannot accidentally opt a link in.
+// Returns '' for empty input.
+function safeDomainsToRegex(domains) {
+    const escaped = domains
+        .split(',')
+        .map((domain) => domain.trim().toLowerCase())
+        .filter(Boolean)
+        .map((domain) => domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return escaped.length
+        ? `^https?:\\/\\/(?:[^/?#@]+\\.)*(?:${escaped.join('|')})(?::\\d+)?(?:[/?#]|$)`
+        : '';
+}
+
+function validateNumberInput(value) {
+    if (value.trim() === '') {
+        throw new InvalidArgumentError('Not a number.');
+    }
+    const parsedValue = Number(value);
+    if (!Number.isFinite(parsedValue)) {
+        throw new InvalidArgumentError('Not a number.');
+    }
+    if (parsedValue < 0) {
+        throw new InvalidArgumentError('Must not be negative.');
+    }
+    return parsedValue;
+}
+// Path-shaped input (./x, ../x, /x, ~/x, C:\x). A missing path must fail
+// loudly: appending https:// to "./typo" would otherwise produce a valid URL
+// like https://./typo and a silently broken app (worst case for agents).
+const PATH_LIKE_PATTERN = /^(\.{1,2}[\\/]|[\\/]|~[\\/]|[a-zA-Z]:[\\/])/;
+function validateUrlInput(url) {
+    const isFile = fs.existsSync(url);
+    if (!isFile) {
+        if (PATH_LIKE_PATTERN.test(url)) {
+            throw new InvalidArgumentError(`Local path "${url}" does not exist. Check the path, or pass a web URL instead.`);
+        }
+        try {
+            return normalizeUrl(url);
+        }
+        catch (error) {
+            if (error instanceof Error) {
+                throw new InvalidArgumentError(error.message);
+            }
+            throw error;
+        }
+    }
+    return url;
+}
+
+const MANAGED_LOCAL_APP_DEFAULTS = {
+    dragRegionHeight: 20,
+    serverTimeout: 30,
+};
+const MANAGED_LOCAL_APP_CONFIG = {
+    stringKeys: ['serverCommand'],
+    integerKeys: ['serverPort', 'serverTimeout'],
+    numberRanges: {
+        serverPort: { min: 1, max: 65535 },
+        serverTimeout: { min: 1, max: 3600 },
+        trafficLightX: { min: 0 },
+        trafficLightY: { min: 0 },
+        dragRegionHeight: { min: 0 },
+    },
+};
+function getManagedLocalAppConfigRule(key) {
+    if (MANAGED_LOCAL_APP_CONFIG.stringKeys.includes(key)) {
+        return { type: 'string' };
+    }
+    const range = MANAGED_LOCAL_APP_CONFIG.numberRanges[key];
+    if (!range)
+        return undefined;
+    return {
+        type: 'number',
+        range,
+        integer: MANAGED_LOCAL_APP_CONFIG.integerKeys.includes(key),
+    };
+}
+function validateIntegerRange(value, name, min, max) {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+        throw new InvalidArgumentError(`${name} must be an integer between ${min} and ${max}.`);
+    }
+    return parsed;
+}
+function validateServerPort(value) {
+    return validateIntegerRange(value, 'Port', 1, 65535);
+}
+function validateServerTimeout(value) {
+    return validateIntegerRange(value, 'Timeout', 1, 3600);
+}
+function addManagedLocalAppOptions(command, defaults) {
+    return command
+        .option('--traffic-light-x <number>', 'macOS traffic light horizontal position', validateNumberInput)
+        .option('--traffic-light-y <number>', 'macOS traffic light vertical position', validateNumberInput)
+        .option('--drag-region-height <number>', 'Height of the draggable top strip in pixels', validateNumberInput, defaults.dragRegionHeight)
+        .option('--server-port <number>', 'Local server port to probe and manage', validateServerPort)
+        .option('--server-command <string>', 'Shell command that starts the local server')
+        .option('--server-timeout <seconds>', 'Seconds to wait for the local server', validateServerTimeout, defaults.serverTimeout);
+}
+function validateManagedLocalAppOptions(options, url) {
+    const hasTrafficLightX = options.trafficLightX !== undefined;
+    const hasTrafficLightY = options.trafficLightY !== undefined;
+    if (hasTrafficLightX !== hasTrafficLightY) {
+        throw new PakeError('--traffic-light-x and --traffic-light-y must be provided together.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass both coordinates or omit both.',
+        });
+    }
+    const hasPort = options.serverPort !== undefined;
+    const hasCommand = options.serverCommand !== undefined;
+    const command = options.serverCommand?.trim();
+    if (hasCommand && !command) {
+        throw new PakeError('--server-command must not be empty.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass the foreground command that starts the local web server.',
+        });
+    }
+    if (hasPort !== hasCommand) {
+        throw new PakeError('--server-port and --server-command must be provided together.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass both options to manage a local server, or omit both.',
+        });
+    }
+    if (!hasPort || !command)
+        return undefined;
+    if (options.multiInstance) {
+        throw new PakeError('--server-port/--server-command cannot be used with --multi-instance.', {
+            code: 'INVALID_INPUT',
+            hint: 'Use the default single-instance mode so one app process owns the managed server.',
+        });
+    }
+    let target;
+    try {
+        target = new URL(url);
+    }
+    catch {
+        throw new PakeError('Managed local servers require an HTTP or HTTPS URL.', {
+            code: 'INVALID_INPUT',
+            hint: `Use http://127.0.0.1:${options.serverPort} or an equivalent loopback URL.`,
+        });
+    }
+    const hostname = target.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (!['http:', 'https:'].includes(target.protocol) ||
+        !['localhost', '127.0.0.1', '::1'].includes(hostname)) {
+        throw new PakeError('Managed local servers require a loopback HTTP or HTTPS URL.', {
+            code: 'INVALID_INPUT',
+            hint: `Use http://127.0.0.1:${options.serverPort}, http://localhost:${options.serverPort}, or the IPv6 loopback equivalent.`,
+        });
+    }
+    const effectivePort = target.port
+        ? Number(target.port)
+        : target.protocol === 'https:'
+            ? 443
+            : 80;
+    if (effectivePort !== options.serverPort) {
+        throw new PakeError(`Target URL port ${effectivePort} does not match --server-port ${options.serverPort}.`, {
+            code: 'INVALID_INPUT',
+            hint: 'Use the same port in the target URL and --server-port.',
+        });
+    }
+    options.serverCommand = command;
+    return hostname;
+}
+function buildManagedWindowConfigOverrides(options, platform) {
+    const overrides = {};
+    if (platform === 'darwin' &&
+        options.hideTitleBar &&
+        options.trafficLightX !== undefined &&
+        options.trafficLightY !== undefined) {
+        overrides.traffic_light_x = options.trafficLightX;
+        overrides.traffic_light_y = options.trafficLightY;
+    }
+    if (options.dragRegionHeight !== MANAGED_LOCAL_APP_DEFAULTS.dragRegionHeight) {
+        overrides.drag_region_height = options.dragRegionHeight;
+    }
+    return overrides;
+}
+function hasManagedServerConfig(options) {
+    return (options.serverHost !== undefined &&
+        options.serverPort !== undefined &&
+        Boolean(options.serverCommand));
+}
+function getManagedServerBuildFeatures(options) {
+    return hasManagedServerConfig(options) ? ['managed-server'] : [];
+}
+function buildServerRemoteUrlPattern(url) {
+    const target = new URL(url);
+    const hostname = target.hostname.startsWith('[')
+        ? target.hostname.replace(/:/g, '\\:')
+        : target.hostname;
+    return `${target.protocol}//${hostname}${target.port ? `:${target.port}` : ''}/*`;
+}
+async function applyManagedLocalAppConfig(url, options, tauriConf, platform) {
+    var _a;
+    if (options.trafficLightX !== undefined) {
+        if (platform !== 'darwin') {
+            logger.warn('✼ --traffic-light-x/--traffic-light-y are only supported on macOS and will be ignored on this platform.');
+        }
+        else if (!options.hideTitleBar) {
+            logger.warn('✼ --traffic-light-x/--traffic-light-y require --hide-title-bar and will be ignored.');
+        }
+    }
+    Object.assign(tauriConf.pake.windows[0], buildManagedWindowConfigOverrides(options, platform));
+    if (!hasManagedServerConfig(options)) {
+        delete tauriConf.pake.server;
+        return;
+    }
+    tauriConf.pake.server = {
+        host: options.serverHost,
+        port: options.serverPort,
+        command: options.serverCommand,
+        timeout: options.serverTimeout,
+    };
+    let capabilityPath = path.join(npmDirectory, 'src-tauri', 'capabilities', 'default.json');
+    if (!(await fsExtra.pathExists(capabilityPath))) {
+        capabilityPath = path.join(npmDirectory, '..', 'src-tauri', 'capabilities', 'default.json');
+    }
+    const capability = (await fsExtra.readJSON(capabilityPath));
+    const { $schema: _schema, ...baseCapability } = capability;
+    const security = ((_a = tauriConf.app).security ?? (_a.security = {}));
+    security.capabilities = [
+        capability.identifier,
+        {
+            ...baseCapability,
+            identifier: 'pake-managed-server-capability',
+            description: 'Capability for the configured managed loopback server.',
+            local: false,
+            remote: { urls: [buildServerRemoteUrlPattern(url)] },
+        },
+    ];
+}
+
 /**
  * Pure transform from CLI options to the window-config slice that gets
  * merged into pake.json. Exposed for snapshot testing so option drift
@@ -618,7 +891,6 @@ function buildWindowConfigOverrides(options, platform = asSupportedPlatform(proc
     const platformHideOnClose = options.hideOnClose ?? platform === 'darwin';
     const platformHideTitleBar = platform === 'darwin' ? options.hideTitleBar : false;
     const platformHideWindowDecorations = platform !== 'darwin' ? options.hideWindowDecorations : false;
-    const useTrafficLightPosition = platform === 'darwin' && platformHideTitleBar;
     return {
         width: options.width,
         height: options.height,
@@ -645,13 +917,6 @@ function buildWindowConfigOverrides(options, platform = asSupportedPlatform(proc
         min_height: options.minHeight,
         ignore_certificate_errors: options.ignoreCertificateErrors,
         new_window: options.newWindow,
-        traffic_light_x: useTrafficLightPosition
-            ? options.trafficLightX
-            : undefined,
-        traffic_light_y: useTrafficLightPosition
-            ? options.trafficLightY
-            : undefined,
-        drag_region_height: options.dragRegionHeight,
     };
 }
 function asSupportedPlatform(platform) {
@@ -956,37 +1221,6 @@ async function injectCustomCode(options, tauriConf) {
         };
     }
 }
-function buildServerRemoteUrlPattern(url) {
-    const target = new URL(url);
-    const hostname = target.hostname.startsWith('[')
-        ? target.hostname.replace(/:/g, '\\:')
-        : target.hostname;
-    return `${target.protocol}//${hostname}${target.port ? `:${target.port}` : ''}/*`;
-}
-async function configureServerCapability(url, options, tauriConf) {
-    var _a;
-    const security = ((_a = tauriConf.app).security ?? (_a.security = {}));
-    if (!options.serverHost) {
-        delete security.capabilities;
-        return;
-    }
-    let capabilityPath = path.join(npmDirectory, 'src-tauri', 'capabilities', 'default.json');
-    if (!(await fsExtra.pathExists(capabilityPath))) {
-        capabilityPath = path.join(npmDirectory, '..', 'src-tauri', 'capabilities', 'default.json');
-    }
-    const capability = (await fsExtra.readJSON(capabilityPath));
-    const { $schema: _schema, ...baseCapability } = capability;
-    security.capabilities = [
-        capability.identifier,
-        {
-            ...baseCapability,
-            identifier: 'pake-managed-server-capability',
-            description: 'Capability for the configured managed loopback server.',
-            local: false,
-            remote: { urls: [buildServerRemoteUrlPattern(url)] },
-        },
-    ];
-}
 async function generateMacEntitlements(camera, microphone) {
     const entitlementEntries = [];
     if (camera) {
@@ -1032,29 +1266,8 @@ async function mergeConfig(url, options, tauriConf) {
     if (options.hideWindowDecorations && platform === 'darwin') {
         logger.warn('✼ --hide-window-decorations is only supported on Windows and Linux and will be ignored on this platform.');
     }
-    if (options.trafficLightX !== undefined) {
-        if (platform !== 'darwin') {
-            logger.warn('✼ --traffic-light-x/--traffic-light-y are only supported on macOS and will be ignored on this platform.');
-        }
-        else if (!options.hideTitleBar) {
-            logger.warn('✼ --traffic-light-x/--traffic-light-y require --hide-title-bar and will be ignored.');
-        }
-    }
     const tauriConfWindowOptions = buildWindowConfigOverrides(options, platform);
     Object.assign(tauriConf.pake.windows[0], { url, ...tauriConfWindowOptions });
-    if (options.serverHost &&
-        options.serverPort !== undefined &&
-        options.serverCommand) {
-        tauriConf.pake.server = {
-            host: options.serverHost,
-            port: options.serverPort,
-            command: options.serverCommand,
-            timeout: options.serverTimeout,
-        };
-    }
-    else {
-        delete tauriConf.pake.server;
-    }
     tauriConf.productName = name;
     tauriConf.identifier = identifier;
     tauriConf.version = appVersion;
@@ -1093,7 +1306,7 @@ async function mergeConfig(url, options, tauriConf) {
     const safeAppName = getSafeAppName(name);
     await mergeIcons(options, name, tauriConf, platform, safeAppName);
     await injectCustomCode(options, tauriConf);
-    await configureServerCapability(url, options, tauriConf);
+    await applyManagedLocalAppConfig(url, options, tauriConf, platform);
     if (platform === 'darwin') {
         await generateMacEntitlements(camera, microphone);
     }
@@ -1556,6 +1769,7 @@ class BaseBuilder {
     }
     getBuildFeatures() {
         const features = ['cli-build'];
+        features.push(...getManagedServerBuildFeatures(this.options));
         // Add macos-proxy feature for modern macOS (Darwin 23+ = macOS 14+)
         if (IS_MAC) {
             const macOSVersion = this.getMacOSMajorVersion();
@@ -2931,60 +3145,6 @@ async function saveIconFile(iconData, extension) {
     return originalIconPath;
 }
 
-// Extracts the domain from a given URL.
-function getDomain(inputUrl) {
-    try {
-        const url = new URL(inputUrl);
-        // Use PSL to parse domain names.
-        const parsed = psl.parse(url.hostname);
-        // If domain is available, split it and return the SLD.
-        if ('domain' in parsed && parsed.domain) {
-            return parsed.domain.split('.')[0];
-        }
-        else {
-            return null;
-        }
-    }
-    catch (error) {
-        return null;
-    }
-}
-// Appends 'https://' protocol to the URL if not present.
-function appendProtocol(inputUrl) {
-    try {
-        new URL(inputUrl);
-        return inputUrl;
-    }
-    catch {
-        return `https://${inputUrl}`;
-    }
-}
-// Normalizes the URL by ensuring it has a protocol and is valid.
-function normalizeUrl(urlToNormalize) {
-    const urlWithProtocol = appendProtocol(urlToNormalize);
-    try {
-        new URL(urlWithProtocol);
-        return urlWithProtocol;
-    }
-    catch (err) {
-        throw new Error(`Your url "${urlWithProtocol}" is invalid: ${err.message}`);
-    }
-}
-// Compiles a comma-separated domain list into a regex source for
-// internal_url_regex. Each domain is escaped and matched against the URL host
-// and its subdomains so path or query text cannot accidentally opt a link in.
-// Returns '' for empty input.
-function safeDomainsToRegex(domains) {
-    const escaped = domains
-        .split(',')
-        .map((domain) => domain.trim().toLowerCase())
-        .filter(Boolean)
-        .map((domain) => domain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    return escaped.length
-        ? `^https?:\\/\\/(?:[^/?#@]+\\.)*(?:${escaped.join('|')})(?::\\d+)?(?:[/?#]|$)`
-        : '';
-}
-
 function resolveAppName(name, platform) {
     const domain = getDomain(name) || 'pake';
     return platform !== 'linux' ? capitalizeFirstLetter(domain) : domain;
@@ -3007,75 +3167,11 @@ function isValidName(name, platform) {
         : /^[a-zA-Z0-9\u4e00-\u9fff][a-zA-Z0-9\u4e00-\u9fff .-]*$/;
     return !!name && reg.test(name);
 }
-function validateManagedServerOptions(options, url) {
-    const hasPort = options.serverPort !== undefined;
-    const hasCommand = options.serverCommand !== undefined;
-    const command = options.serverCommand?.trim();
-    if (hasCommand && !command) {
-        throw new PakeError('--server-command must not be empty.', {
-            code: 'INVALID_INPUT',
-            hint: 'Pass the foreground command that starts the local web server.',
-        });
-    }
-    if (hasPort !== hasCommand) {
-        throw new PakeError('--server-port and --server-command must be provided together.', {
-            code: 'INVALID_INPUT',
-            hint: 'Pass both options to manage a local server, or omit both.',
-        });
-    }
-    if (!hasPort || !command)
-        return undefined;
-    if (options.multiInstance) {
-        throw new PakeError('--server-port/--server-command cannot be used with --multi-instance.', {
-            code: 'INVALID_INPUT',
-            hint: 'Use the default single-instance mode so one app process owns the managed server.',
-        });
-    }
-    let target;
-    try {
-        target = new URL(url);
-    }
-    catch {
-        throw new PakeError('Managed local servers require an HTTP or HTTPS URL.', {
-            code: 'INVALID_INPUT',
-            hint: `Use http://127.0.0.1:${options.serverPort} or an equivalent loopback URL.`,
-        });
-    }
-    const hostname = target.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    if (!['http:', 'https:'].includes(target.protocol) ||
-        !['localhost', '127.0.0.1', '::1'].includes(hostname)) {
-        throw new PakeError('Managed local servers require a loopback HTTP or HTTPS URL.', {
-            code: 'INVALID_INPUT',
-            hint: `Use http://127.0.0.1:${options.serverPort}, http://localhost:${options.serverPort}, or the IPv6 loopback equivalent.`,
-        });
-    }
-    const effectivePort = target.port
-        ? Number(target.port)
-        : target.protocol === 'https:'
-            ? 443
-            : 80;
-    if (effectivePort !== options.serverPort) {
-        throw new PakeError(`Target URL port ${effectivePort} does not match --server-port ${options.serverPort}.`, {
-            code: 'INVALID_INPUT',
-            hint: 'Use the same port in the target URL and --server-port.',
-        });
-    }
-    options.serverCommand = command;
-    return hostname;
-}
 async function handleOptions(options, url) {
     const { platform } = process;
     const isActions = process.env.GITHUB_ACTIONS;
     let name = options.name;
-    const serverHost = validateManagedServerOptions(options, url);
-    const hasTrafficLightX = options.trafficLightX !== undefined;
-    const hasTrafficLightY = options.trafficLightY !== undefined;
-    if (hasTrafficLightX !== hasTrafficLightY) {
-        throw new PakeError('--traffic-light-x and --traffic-light-y must be provided together.', {
-            code: 'INVALID_INPUT',
-            hint: 'Pass both coordinates or omit both.',
-        });
-    }
+    const serverHost = validateManagedLocalAppOptions(options, url);
     const pathExists = await fsExtra.pathExists(url);
     if (!options.name) {
         const defaultName = pathExists
@@ -3128,6 +3224,7 @@ async function handleOptions(options, url) {
 }
 
 const DEFAULT_PAKE_OPTIONS = {
+    ...MANAGED_LOCAL_APP_DEFAULTS,
     icon: '',
     height: 780,
     width: 1200,
@@ -3135,7 +3232,6 @@ const DEFAULT_PAKE_OPTIONS = {
     maximize: false,
     resizable: true,
     hideTitleBar: false,
-    dragRegionHeight: 20,
     hideWindowDecorations: false,
     alwaysOnTop: false,
     appVersion: '1.0.0',
@@ -3187,57 +3283,7 @@ const DEFAULT_PAKE_OPTIONS = {
     install: false,
     camera: false,
     microphone: false,
-    serverTimeout: 30,
 };
-
-function validateNumberInput(value) {
-    if (value.trim() === '') {
-        throw new InvalidArgumentError('Not a number.');
-    }
-    const parsedValue = Number(value);
-    if (!Number.isFinite(parsedValue)) {
-        throw new InvalidArgumentError('Not a number.');
-    }
-    if (parsedValue < 0) {
-        throw new InvalidArgumentError('Must not be negative.');
-    }
-    return parsedValue;
-}
-function validateIntegerRange(value, name, min, max) {
-    const parsed = Number(value);
-    if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-        throw new InvalidArgumentError(`${name} must be an integer between ${min} and ${max}.`);
-    }
-    return parsed;
-}
-function validateServerPort(value) {
-    return validateIntegerRange(value, 'Port', 1, 65535);
-}
-function validateServerTimeout(value) {
-    return validateIntegerRange(value, 'Timeout', 1, 3600);
-}
-// Path-shaped input (./x, ../x, /x, ~/x, C:\x). A missing path must fail
-// loudly: appending https:// to "./typo" would otherwise produce a valid URL
-// like https://./typo and a silently broken app (worst case for agents).
-const PATH_LIKE_PATTERN = /^(\.{1,2}[\\/]|[\\/]|~[\\/]|[a-zA-Z]:[\\/])/;
-function validateUrlInput(url) {
-    const isFile = fs.existsSync(url);
-    if (!isFile) {
-        if (PATH_LIKE_PATTERN.test(url)) {
-            throw new InvalidArgumentError(`Local path "${url}" does not exist. Check the path, or pass a web URL instead.`);
-        }
-        try {
-            return normalizeUrl(url);
-        }
-        catch (error) {
-            if (error instanceof Error) {
-                throw new InvalidArgumentError(error.message);
-            }
-            throw error;
-        }
-    }
-    return url;
-}
 
 function getCliProgram() {
     const { green, yellow } = chalk;
@@ -3247,7 +3293,7 @@ ${green('| |_) / _` | |/ / _ \\')}
 ${green('|  __/ (_| |   <  __/')}  ${yellow('https://github.com/tw93/pake')}
 ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with Rust.')}
 `;
-    return program$1
+    const configuredProgram = program$1
         .addHelpText('beforeAll', logo)
         .usage(`[url] [options]`)
         .helpOption('-h, --help', 'Show all CLI options')
@@ -3261,9 +3307,6 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
         .option('--use-local-file', 'Use local file packaging', DEFAULT_PAKE_OPTIONS.useLocalFile)
         .option('--fullscreen', 'Start in full screen', DEFAULT_PAKE_OPTIONS.fullscreen)
         .option('--hide-title-bar', 'For Mac, hide title bar', DEFAULT_PAKE_OPTIONS.hideTitleBar)
-        .option('--traffic-light-x <number>', 'macOS traffic light horizontal position', validateNumberInput)
-        .option('--traffic-light-y <number>', 'macOS traffic light vertical position', validateNumberInput)
-        .option('--drag-region-height <number>', 'Height of the draggable top strip in pixels', validateNumberInput, DEFAULT_PAKE_OPTIONS.dragRegionHeight)
         .option('--hide-window-decorations', 'Hide native window decorations on Windows and Linux', DEFAULT_PAKE_OPTIONS.hideWindowDecorations)
         .option('--multi-arch', 'For Mac, both Intel and M1', DEFAULT_PAKE_OPTIONS.multiArch)
         .option('--inject <files>', 'Inject local CSS/JS files into the page', (val, previous) => {
@@ -3393,10 +3436,8 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
         .hideHelp())
         .addOption(new Option('--microphone', 'Request microphone permission on macOS')
         .default(DEFAULT_PAKE_OPTIONS.microphone)
-        .hideHelp())
-        .option('--server-port <number>', 'Local server port to probe and manage', validateServerPort)
-        .option('--server-command <string>', 'Shell command that starts the local server')
-        .option('--server-timeout <seconds>', 'Seconds to wait for the local server', validateServerTimeout, DEFAULT_PAKE_OPTIONS.serverTimeout)
+        .hideHelp());
+    return addManagedLocalAppOptions(configuredProgram, DEFAULT_PAKE_OPTIONS)
         .version(packageJson.version, '-v, --version')
         .configureHelp({
         sortSubcommands: true,
@@ -3418,27 +3459,10 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
     });
 }
 
-function applyConfigFileOptions(options, configOptions, getOptionValueSource) {
-    for (const [key, value] of Object.entries(configOptions)) {
-        if (getOptionValueSource(key) !== 'cli') {
-            options[key] = value;
-        }
-    }
-}
 // Invocation concerns, not app manifest fields; pass these as CLI flags.
 const REJECTED_KEYS = new Set(['config', 'json', 'version']);
 // Optional CLI options that have no entry in DEFAULT_PAKE_OPTIONS.
-const EXTRA_STRING_KEYS = new Set([
-    'name',
-    'title',
-    'identifier',
-    'serverCommand',
-]);
-const EXTRA_NUMBER_KEYS = new Set([
-    'serverPort',
-    'trafficLightX',
-    'trafficLightY',
-]);
+const EXTRA_STRING_KEYS = new Set(['name', 'title', 'identifier']);
 // Numeric fields share the CLI flag ranges (see cli-program.ts validators),
 // so a config file cannot smuggle a value the same flag would reject.
 const NUMBER_RANGES = {
@@ -3447,22 +3471,17 @@ const NUMBER_RANGES = {
     minWidth: { min: 0 },
     minHeight: { min: 0 },
     zoom: { min: 50, max: 200 },
-    serverPort: { min: 1, max: 65535 },
-    serverTimeout: { min: 1, max: 3600 },
-    trafficLightX: { min: 0 },
-    trafficLightY: { min: 0 },
-    dragRegionHeight: { min: 0 },
 };
-const INTEGER_KEYS = new Set(['serverPort', 'serverTimeout']);
 function expectedTypeFor(key) {
     if (key === 'inject')
         return 'string[]';
     if (key === 'hideOnClose')
         return 'boolean';
+    const managedRule = getManagedLocalAppConfigRule(key);
+    if (managedRule)
+        return managedRule.type;
     if (EXTRA_STRING_KEYS.has(key))
         return 'string';
-    if (EXTRA_NUMBER_KEYS.has(key))
-        return 'number';
     const defaultValue = DEFAULT_PAKE_OPTIONS[key];
     const type = typeof defaultValue;
     if (type === 'string' || type === 'number' || type === 'boolean') {
@@ -3534,11 +3553,12 @@ async function loadConfigFile(configPath, validKeys) {
             });
         }
         if (typeof value === 'number') {
-            const range = NUMBER_RANGES[key];
+            const managedRule = getManagedLocalAppConfigRule(key);
+            const range = NUMBER_RANGES[key] ?? managedRule?.range;
             const min = range?.min ?? 0;
             const max = range?.max;
             if (!Number.isFinite(value) ||
-                (INTEGER_KEYS.has(key) && !Number.isInteger(value)) ||
+                (managedRule?.integer && !Number.isInteger(value)) ||
                 value < min ||
                 (max !== undefined && value > max)) {
                 const bounds = max !== undefined ? `${min}-${max}` : `>= ${min}`;
@@ -3621,7 +3641,11 @@ program.action(async (urlArg, options) => {
         if (options.config) {
             const validKeys = new Set(program.options.map((option) => option.attributeName()));
             const loaded = await loadConfigFile(options.config, validKeys);
-            applyConfigFileOptions(options, loaded.options, (key) => program.getOptionValueSource(key));
+            for (const [key, value] of Object.entries(loaded.options)) {
+                if (program.getOptionValueSource(key) !== 'cli') {
+                    options[key] = value;
+                }
+            }
             if (!url && loaded.url) {
                 try {
                     url = validateUrlInput(loaded.url);

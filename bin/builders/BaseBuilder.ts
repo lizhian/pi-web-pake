@@ -19,6 +19,7 @@ import { shellExec } from '@/utils/shell';
 import { CN_MIRROR_ENV, isCnMirrorEnabled } from '@/utils/mirror';
 import { IS_MAC } from '@/utils/platform';
 import logger from '@/options/logger';
+import { getManagedServerBuildFeatures } from '@/extensions/managed-local-app';
 import {
   configureCargoRegistry,
   detectPackageManager,
@@ -460,6 +461,8 @@ export default abstract class BaseBuilder {
 
   protected getBuildFeatures(): string[] {
     const features = ['cli-build'];
+
+    features.push(...getManagedServerBuildFeatures(this.options));
 
     // Add macos-proxy feature for modern macOS (Darwin 23+ = macOS 14+)
     if (IS_MAC) {

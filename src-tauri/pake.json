@@ -22,8 +22,7 @@
       "force_internal_navigation": false,
       "internal_url_regex": "",
       "enable_find": false,
-      "new_window": false,
-      "drag_region_height": 20
+      "new_window": false
     }
   ],
   "user_agent": {

@@ -2,6 +2,7 @@ import fsExtra from 'fs-extra';
 import { DEFAULT_PAKE_OPTIONS as DEFAULT } from '../defaults';
 import { PakeError } from '../utils/error';
 import { PakeCliOptions } from '../types';
+import { getManagedLocalAppConfigRule } from '../extensions/managed-local-app';
 
 /**
  * `--config <path>` support: a declarative JSON manifest whose fields mirror
@@ -15,33 +16,11 @@ export interface LoadedConfigFile {
   options: Partial<PakeCliOptions>;
 }
 
-export function applyConfigFileOptions(
-  options: PakeCliOptions,
-  configOptions: Partial<PakeCliOptions>,
-  getOptionValueSource: (key: string) => string | undefined,
-): void {
-  for (const [key, value] of Object.entries(configOptions)) {
-    if (getOptionValueSource(key) !== 'cli') {
-      (options as unknown as Record<string, unknown>)[key] = value;
-    }
-  }
-}
-
 // Invocation concerns, not app manifest fields; pass these as CLI flags.
 const REJECTED_KEYS = new Set(['config', 'json', 'version']);
 
 // Optional CLI options that have no entry in DEFAULT_PAKE_OPTIONS.
-const EXTRA_STRING_KEYS = new Set([
-  'name',
-  'title',
-  'identifier',
-  'serverCommand',
-]);
-const EXTRA_NUMBER_KEYS = new Set([
-  'serverPort',
-  'trafficLightX',
-  'trafficLightY',
-]);
+const EXTRA_STRING_KEYS = new Set(['name', 'title', 'identifier']);
 
 type ExpectedType = 'string' | 'number' | 'boolean' | 'string[]';
 
@@ -53,20 +32,14 @@ const NUMBER_RANGES: Record<string, { min: number; max?: number }> = {
   minWidth: { min: 0 },
   minHeight: { min: 0 },
   zoom: { min: 50, max: 200 },
-  serverPort: { min: 1, max: 65535 },
-  serverTimeout: { min: 1, max: 3600 },
-  trafficLightX: { min: 0 },
-  trafficLightY: { min: 0 },
-  dragRegionHeight: { min: 0 },
 };
-
-const INTEGER_KEYS = new Set(['serverPort', 'serverTimeout']);
 
 function expectedTypeFor(key: string): ExpectedType | null {
   if (key === 'inject') return 'string[]';
   if (key === 'hideOnClose') return 'boolean';
+  const managedRule = getManagedLocalAppConfigRule(key);
+  if (managedRule) return managedRule.type;
   if (EXTRA_STRING_KEYS.has(key)) return 'string';
-  if (EXTRA_NUMBER_KEYS.has(key)) return 'number';
   const defaultValue = (DEFAULT as unknown as Record<string, unknown>)[key];
   const type = typeof defaultValue;
   if (type === 'string' || type === 'number' || type === 'boolean') {
@@ -155,12 +128,13 @@ export async function loadConfigFile(
       );
     }
     if (typeof value === 'number') {
-      const range = NUMBER_RANGES[key];
+      const managedRule = getManagedLocalAppConfigRule(key);
+      const range = NUMBER_RANGES[key] ?? managedRule?.range;
       const min = range?.min ?? 0;
       const max = range?.max;
       if (
         !Number.isFinite(value) ||
-        (INTEGER_KEYS.has(key) && !Number.isInteger(value)) ||
+        (managedRule?.integer && !Number.isInteger(value)) ||
         value < min ||
         (max !== undefined && value > max)
       ) {

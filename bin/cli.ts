@@ -5,7 +5,7 @@ import packageJson from '../package.json';
 import BuilderProvider from './builders/BuilderProvider';
 import handleInputOptions from './options/index';
 import { getCliProgram } from './helpers/cli-program';
-import { applyConfigFileOptions, loadConfigFile } from './helpers/config-file';
+import { loadConfigFile } from './helpers/config-file';
 import { restoreLocalTree } from './helpers/merge';
 import { isPakeError, PakeError } from './utils/error';
 import { validateUrlInput } from './utils/validate';
@@ -103,9 +103,11 @@ program.action(async (urlArg: string, options: PakeCliOptions) => {
         program.options.map((option) => option.attributeName()),
       );
       const loaded = await loadConfigFile(options.config, validKeys);
-      applyConfigFileOptions(options, loaded.options, (key) =>
-        program.getOptionValueSource(key),
-      );
+      for (const [key, value] of Object.entries(loaded.options)) {
+        if (program.getOptionValueSource(key) !== 'cli') {
+          (options as unknown as Record<string, unknown>)[key] = value;
+        }
+      }
       if (!url && loaded.url) {
         try {
           url = validateUrlInput(loaded.url);

@@ -1,7 +1,9 @@
 import { PakeCliOptions } from './types.js';
 import { getDefaultLinuxTargets } from './utils/platform.js';
+import { MANAGED_LOCAL_APP_DEFAULTS } from './extensions/managed-local-app.js';
 
 export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
+  ...MANAGED_LOCAL_APP_DEFAULTS,
   icon: '',
   height: 780,
   width: 1200,
@@ -9,7 +11,6 @@ export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
   maximize: false,
   resizable: true,
   hideTitleBar: false,
-  dragRegionHeight: 20,
   hideWindowDecorations: false,
   alwaysOnTop: false,
   appVersion: '1.0.0',
@@ -61,5 +62,4 @@ export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
   install: false,
   camera: false,
   microphone: false,
-  serverTimeout: 30,
 };

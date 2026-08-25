@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { configureServerCapability } from '../../bin/helpers/merge';
+import { applyManagedLocalAppConfig } from '../../bin/extensions/managed-local-app';
 import type { PakeAppOptions, PakeTauriConfig } from '../../bin/types';
 
 describe('managed server capability', () => {
@@ -17,11 +17,21 @@ describe('managed server capability', () => {
   });
 
   it('adds only the configured loopback origin to managed builds', async () => {
-    const tauriConf = { app: { security: {} } } as PakeTauriConfig;
-    await configureServerCapability(
+    const tauriConf = {
+      app: { security: {} },
+      pake: { windows: [{}] },
+    } as PakeTauriConfig;
+    await applyManagedLocalAppConfig(
       'http://127.0.0.1:30141/path',
-      { serverHost: '127.0.0.1' } as PakeAppOptions,
+      {
+        serverHost: '127.0.0.1',
+        serverPort: 30141,
+        serverCommand: 'server',
+        serverTimeout: 30,
+        dragRegionHeight: 20,
+      } as PakeAppOptions,
       tauriConf,
+      'darwin',
     );
 
     expect(tauriConf.app.security?.capabilities?.[0]).toBe('pake-capability');
@@ -33,11 +43,15 @@ describe('managed server capability', () => {
   });
 
   it('does not add explicit capabilities to ordinary builds', async () => {
-    const tauriConf = { app: { security: {} } } as PakeTauriConfig;
-    await configureServerCapability(
+    const tauriConf = {
+      app: { security: {} },
+      pake: { windows: [{}] },
+    } as PakeTauriConfig;
+    await applyManagedLocalAppConfig(
       'https://example.com',
-      {} as PakeAppOptions,
+      { dragRegionHeight: 20 } as PakeAppOptions,
       tauriConf,
+      'darwin',
     );
     expect(tauriConf.app.security?.capabilities).toBeUndefined();
   });
