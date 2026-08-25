@@ -1,0 +1,298 @@
+name: Build Managed Local Apps
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: managed-local-apps-release
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.26.2"
+
+jobs:
+  prepare:
+    name: Prepare release version
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      app_version: ${{ steps.version.outputs.app_version }}
+    steps:
+      - name: Generate date version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Managed local app releases must be dispatched from main."
+            exit 1
+          fi
+          RELEASE_DATE="$(TZ=Asia/Shanghai date +%Y%m%d)"
+          SHORT_YEAR="$((10#${RELEASE_DATE:2:2}))"
+          MONTH="$((10#${RELEASE_DATE:4:2}))"
+          DAY="$((10#${RELEASE_DATE:6:2}))"
+          echo "release_tag=v${RELEASE_DATE}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${SHORT_YEAR}.${MONTH}.${DAY}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.label }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS x64
+            os: macos-15-intel
+            platform: macos
+            arch: x64
+            rust_target: x86_64-apple-darwin
+            pake_targets: intel
+          - label: macOS ARM64
+            os: macos-15
+            platform: macos
+            arch: arm64
+            rust_target: aarch64-apple-darwin
+            pake_targets: apple
+          - label: Windows x64
+            os: windows-2025
+            platform: windows
+            arch: x64
+            rust_target: x86_64-pc-windows-msvc
+            pake_targets: x64
+          - label: Windows ARM64
+            os: windows-11-arm
+            platform: windows
+            arch: arm64
+            rust_target: aarch64-pc-windows-msvc
+            pake_targets: arm64
+          - label: Linux x64
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            rust_target: x86_64-unknown-linux-gnu
+            pake_targets: deb,appimage
+          - label: Linux ARM64
+            os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+            pake_targets: deb-arm64,appimage-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libdbus-1-dev \
+            libfuse2 \
+            libgtk-3-dev \
+            libjavascriptcoregtk-4.1-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            wget
+
+      - name: Ensure WiX Toolset
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $wixPath = "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin"
+          if (-not (Test-Path "$wixPath\light.exe")) {
+            Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe" -OutFile "$env:RUNNER_TEMP\wix311.exe"
+            Start-Process -FilePath "$env:RUNNER_TEMP\wix311.exe" -ArgumentList "/quiet" -Wait
+          }
+          if (-not (Test-Path "$wixPath\light.exe")) {
+            throw "WiX Toolset installation failed."
+          }
+          $wixPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Restore Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: managed-local-apps-${{ matrix.platform }}-${{ matrix.arch }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        run: pnpm run cli:build
+
+      - name: Prepare macOS signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PAKE_SIGNING_IDENTITY: ${{ secrets.PAKE_SIGNING_IDENTITY }}
+          PAKE_CERTIFICATE_P12: ${{ secrets.PAKE_CERTIFICATE_P12 }}
+          PAKE_CERTIFICATE_PASSWORD: ${{ secrets.PAKE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          SIGNING_IDENTITY="${PAKE_SIGNING_IDENTITY:-}"
+
+          if [ -n "${PAKE_CERTIFICATE_P12:-}" ] && [ -n "${PAKE_CERTIFICATE_PASSWORD:-}" ]; then
+            KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+            KEYCHAIN_PASSWORD="$(openssl rand -base64 16)"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            echo "$PAKE_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+            security import "$RUNNER_TEMP/certificate.p12" \
+              -P "$PAKE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+            security set-key-partition-list \
+              -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security list-keychain -d user -s "$KEYCHAIN_PATH"
+            if [ -z "$SIGNING_IDENTITY" ]; then
+              SIGNING_IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)".*/\1/p' | head -n 1)"
+            fi
+          fi
+
+          if [ -z "$SIGNING_IDENTITY" ]; then
+            SIGNING_IDENTITY="-"
+          fi
+
+          SIGNING_IDENTITY="$SIGNING_IDENTITY" node <<'NODE'
+          const fs = require('fs');
+          const file = 'src-tauri/tauri.macos.conf.json';
+          const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+          config.bundle ??= {};
+          config.bundle.macOS ??= {};
+          config.bundle.macOS.signingIdentity = process.env.SIGNING_IDENTITY;
+          fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
+      - name: Build DeepSeek Harness and Pi Web
+        env:
+          PAKE_BUILD_PLATFORM: ${{ matrix.platform }}
+          PAKE_BUILD_ARCH: ${{ matrix.arch }}
+          PAKE_BUILD_TARGETS: ${{ matrix.pake_targets }}
+          PAKE_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          PAKE_APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+        run: node .github/scripts/build-managed-local-apps.mjs
+
+      - name: Notarize macOS installers
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          PAKE_NOTARIZE_APPLE_ID: ${{ secrets.PAKE_NOTARIZE_APPLE_ID }}
+          PAKE_NOTARIZE_TEAM_ID: ${{ secrets.PAKE_NOTARIZE_TEAM_ID }}
+          PAKE_NOTARIZE_PASSWORD: ${{ secrets.PAKE_NOTARIZE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PAKE_NOTARIZE_APPLE_ID:-}" ] || \
+             [ -z "${PAKE_NOTARIZE_TEAM_ID:-}" ] || \
+             [ -z "${PAKE_NOTARIZE_PASSWORD:-}" ]; then
+            echo "Notarization secrets are not configured; keeping ad-hoc or locally signed DMGs."
+            exit 0
+          fi
+
+          for installer in release/*.dmg; do
+            xcrun notarytool submit "$installer" \
+              --apple-id "$PAKE_NOTARIZE_APPLE_ID" \
+              --team-id "$PAKE_NOTARIZE_TEAM_ID" \
+              --password "$PAKE_NOTARIZE_PASSWORD" \
+              --wait
+            xcrun stapler staple "$installer"
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: managed-local-apps-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download all installers
+        uses: actions/download-artifact@v7
+        with:
+          pattern: managed-local-apps-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release -maxdepth 1 -type f -print | sort
+          ASSET_COUNT="$(find release -maxdepth 1 -type f | wc -l | tr -d ' ')"
+          if [ "$ASSET_COUNT" -ne 16 ]; then
+            echo "Expected 16 release assets, found $ASSET_COUNT."
+            exit 1
+          fi
+
+      - name: Create release and upload installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+            TAG_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
+            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
+              echo "$RELEASE_TAG already points to $TAG_COMMIT, not $GITHUB_SHA."
+              exit 1
+            fi
+          fi
+
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --target "$GITHUB_SHA" \
+              --title "Managed local apps $RELEASE_TAG" \
+              --notes "DeepSeek Harness and Pi Web clients for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. The corresponding dsh or pi-web executable must be available on the client PATH."
+          fi
+
+          gh release upload "$RELEASE_TAG" release/* --clobber
