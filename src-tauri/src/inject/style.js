@@ -479,7 +479,7 @@ window.addEventListener("DOMContentLoaded", (_event) => {
       background:transparent;
       top:0;
       width: 100%;
-      height: 10px;
+      height: 20px;
       cursor: grab;
       -webkit-app-region: drag;
       user-select: none;
@@ -513,7 +513,7 @@ window.addEventListener("DOMContentLoaded", (_event) => {
       background: transparent;
       top: 0;
       width: 100%;
-      height: 10px;
+      height: 20px;
       cursor: grab;
       -webkit-app-region: drag;
       user-select: none;

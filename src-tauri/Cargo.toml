@@ -1,7 +1,7 @@
 [package]
-name = "pi-web-desktop"
-version = "0.1.0"
-description = "A lightweight macOS desktop launcher for a user-managed Pi Web installation."
+name = "pake"
+version = "3.15.7"
+description = "🤱🏻 Turn any webpage into a desktop app with Rust."
 authors = ["Tw93"]
 license = "GPL-3.0-or-later"
 repository = "https://github.com/tw93/Pake"
@@ -34,9 +34,12 @@ tauri-plugin-shell = { version = "2.3.5" }
 tauri-plugin-opener = { version = "2.5.3" }
 tauri-plugin-single-instance = "2.4.0"
 tauri-plugin-notification = "2.3.3"
+tauri-plugin-dialog = { version = "2.7.1", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
 block2 = "0.6"
 dispatch = "0.2"
 objc2 = "0.6"
@@ -57,6 +60,10 @@ webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }
@@ -69,6 +76,8 @@ cli-build = []
 # Tauri's macOS proxy APIs require macOS 14 or later. The CLI enables this
 # feature only after checking the host Darwin version.
 macos-proxy = ["tauri/macos-proxy"]
+# Fork extension: compile local process management only for managed-server builds.
+managed-server = ["dep:libc", "dep:tauri-plugin-dialog"]
 # by default Tauri runs in production mode
 # when `tauri dev` runs it is executed with `cargo run --no-default-features` if `devPath` is an URL
 default = ["custom-protocol"]

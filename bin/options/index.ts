@@ -13,6 +13,7 @@ import { generateLinuxPackageName } from '@/utils/name';
 import { PakeError } from '@/utils/error';
 import { isInteractive } from '@/utils/output';
 import { PakeAppOptions, PakeCliOptions } from '@/types';
+import { validateManagedLocalAppOptions } from '@/extensions/managed-local-app';
 
 function resolveAppName(name: string, platform: NodeJS.Platform): string {
   const domain = getDomain(name) || 'pake';
@@ -50,6 +51,7 @@ export default async function handleOptions(
   const { platform } = process;
   const isActions = process.env.GITHUB_ACTIONS;
   let name = options.name;
+  const serverHost = validateManagedLocalAppOptions(options, url);
 
   const pathExists = await fsExtra.pathExists(url);
   if (!options.name) {
@@ -89,6 +91,7 @@ export default async function handleOptions(
     ...options,
     name: resolvedName,
     identifier: resolveIdentifier(url, options.name, options.identifier),
+    serverHost,
   };
 
   // --safe-domain is sugar over --internal-url-regex; an explicit regex wins.

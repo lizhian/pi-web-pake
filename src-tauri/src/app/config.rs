@@ -5,6 +5,12 @@ pub struct WindowConfig {
     pub url: String,
     pub hide_title_bar: bool,
     #[serde(default)]
+    pub traffic_light_x: Option<f64>,
+    #[serde(default)]
+    pub traffic_light_y: Option<f64>,
+    #[serde(default)]
+    pub drag_region_height: Option<f64>,
+    #[serde(default)]
     pub hide_window_decorations: bool,
     pub fullscreen: bool,
     pub maximize: bool,
@@ -92,6 +98,9 @@ pub struct PakeConfig {
     pub multi_instance: bool,
     #[serde(default)]
     pub multi_window: bool,
+    #[cfg(feature = "managed-server")]
+    #[serde(default)]
+    pub server: Option<crate::local_server::ServerConfig>,
 }
 
 impl PakeConfig {

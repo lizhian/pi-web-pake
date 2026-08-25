@@ -1,11 +1,11 @@
 {
-  "productName": "Pi Web Desktop",
-  "identifier": "com.piweb.desktop",
-  "version": "0.1.0",
+  "productName": "Weekly",
+  "identifier": "com.pake.weekly",
+  "version": "3.15.7",
   "app": {
     "withGlobalTauri": true,
     "trayIcon": {
-      "iconPath": "icons/icon.png",
+      "iconPath": "png/weekly_512.png",
       "iconAsTemplate": false,
       "id": "pake-tray"
     },
@@ -16,8 +16,5 @@
   },
   "build": {
     "frontendDist": "../dist"
-  },
-  "bundle": {
-    "icon": ["icons/icon.icns", "icons/icon.png"]
   }
 }

@@ -19,6 +19,7 @@ import {
 import { tauriConfigDirectory, npmDirectory } from '@/utils/dir';
 import { PakeError } from '@/utils/error';
 import { LINUX_TARGET_TYPES, resolveLinuxBundleTargets } from '@/utils/targets';
+import { applyManagedLocalAppConfig } from '@/extensions/managed-local-app';
 
 /**
  * Pure transform from CLI options to the window-config slice that gets
@@ -632,6 +633,7 @@ export async function mergeConfig(
   await mergeIcons(options, name, tauriConf, platform, safeAppName);
 
   await injectCustomCode(options, tauriConf);
+  await applyManagedLocalAppConfig(url, options, tauriConf, platform);
 
   if (platform === 'darwin') {
     await generateMacEntitlements(camera, microphone);

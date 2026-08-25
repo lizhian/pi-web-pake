@@ -1,7 +1,14 @@
+import type {
+  ManagedLocalAppCliOptions,
+  ManagedLocalAppResolvedOptions,
+  ManagedPakeConfig,
+  ManagedWindowConfig,
+} from './extensions/managed-local-app.js';
+
 export type SupportedPlatform = 'win32' | 'darwin' | 'linux';
 export type TauriPlatform = 'windows' | 'macos' | 'linux';
 
-export interface PakeCliOptions {
+export interface PakeCliOptions extends ManagedLocalAppCliOptions {
   // Application name
   name?: string;
 
@@ -158,7 +165,8 @@ export interface PakeCliOptions {
   microphone: boolean;
 }
 
-export interface PakeAppOptions extends PakeCliOptions {
+export interface PakeAppOptions
+  extends PakeCliOptions, ManagedLocalAppResolvedOptions {
   identifier: string;
 }
 
@@ -168,7 +176,7 @@ export interface PlatformSpecific<T> {
   windows: T;
 }
 
-export interface WindowConfig {
+export interface WindowConfig extends ManagedWindowConfig {
   url: string;
   hide_title_bar: boolean;
   hide_window_decorations: boolean;
@@ -198,7 +206,7 @@ export interface WindowConfig {
   new_window: boolean;
 }
 
-export interface PakeConfig {
+export interface PakeConfig extends ManagedPakeConfig {
   windows: WindowConfig[];
   user_agent: PlatformSpecific<string>;
   system_tray: PlatformSpecific<boolean>;
@@ -232,7 +240,10 @@ export interface PakeTauriConfig {
     [key: string]: unknown;
   };
   app: {
-    security?: { headers?: Record<string, string> };
+    security?: {
+      headers?: Record<string, string>;
+      capabilities?: Array<string | Record<string, unknown>>;
+    };
     trayIcon?: unknown;
     [key: string]: unknown;
   };
