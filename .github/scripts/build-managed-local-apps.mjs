@@ -44,6 +44,7 @@ function requireEnvironment(name, pattern) {
 
 const platform = requireEnvironment("PAKE_BUILD_PLATFORM");
 const architecture = requireEnvironment("PAKE_BUILD_ARCH");
+const appSlug = requireEnvironment("PAKE_BUILD_APP");
 const releaseTag = requireEnvironment("PAKE_RELEASE_TAG", /^v\d{8}$/);
 const appVersion = requireEnvironment("PAKE_APP_VERSION", /^\d+\.\d+\.\d+$/);
 const targets = requireEnvironment("PAKE_BUILD_TARGETS")
@@ -60,6 +61,10 @@ if (!VALID_ARCHITECTURES.has(architecture)) {
 }
 if (targets.length === 0) {
   throw new Error("PAKE_BUILD_TARGETS must contain at least one target.");
+}
+const selectedApp = APPS.find((app) => app.slug === appSlug);
+if (!selectedApp) {
+  throw new Error(`Unsupported PAKE_BUILD_APP: ${appSlug}`);
 }
 
 const releaseDirectory = path.resolve("release");
@@ -144,7 +149,7 @@ function copyArtifacts(app, result) {
   }
 }
 
-for (const app of APPS) {
+for (const app of [selectedApp]) {
   for (const target of targets) {
     const args = buildArguments(app, target);
 

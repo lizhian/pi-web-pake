@@ -19,6 +19,7 @@ const scriptPath = path.join(
 );
 
 function plans(
+  app: string,
   platform: string,
   architecture: string,
   targets: string,
@@ -27,6 +28,7 @@ function plans(
     encoding: 'utf8',
     env: {
       ...process.env,
+      PAKE_BUILD_APP: app,
       PAKE_BUILD_PLATFORM: platform,
       PAKE_BUILD_ARCH: architecture,
       PAKE_BUILD_TARGETS: targets,
@@ -48,14 +50,14 @@ function argumentValue(plan: BuildPlan, flag: string): string | undefined {
 
 describe('managed local app release workflow', () => {
   it('plans all 16 release assets across native x64 and ARM64 runners', () => {
-    const matrix = [
-      plans('macos', 'x64', 'intel'),
-      plans('macos', 'arm64', 'apple'),
-      plans('windows', 'x64', 'x64'),
-      plans('windows', 'arm64', 'arm64'),
-      plans('linux', 'x64', 'deb,appimage'),
-      plans('linux', 'arm64', 'deb-arm64,appimage-arm64'),
-    ].flat();
+    const matrix = ['deepseek-harness', 'pi-web'].flatMap((app) => [
+      ...plans(app, 'macos', 'x64', 'intel'),
+      ...plans(app, 'macos', 'arm64', 'apple'),
+      ...plans(app, 'windows', 'x64', 'x64'),
+      ...plans(app, 'windows', 'arm64', 'arm64'),
+      ...plans(app, 'linux', 'x64', 'deb,appimage'),
+      ...plans(app, 'linux', 'arm64', 'deb-arm64,appimage-arm64'),
+    ]);
 
     expect(matrix).toHaveLength(16);
     expect(new Set(matrix.map((plan) => plan.app))).toEqual(
@@ -76,7 +78,8 @@ describe('managed local app release workflow', () => {
   });
 
   it('uses the managed server commands, identifiers, and plain loopback URLs', () => {
-    const [deepseek, piWeb] = plans('macos', 'arm64', 'apple');
+    const [deepseek] = plans('deepseek-harness', 'macos', 'arm64', 'apple');
+    const [piWeb] = plans('pi-web', 'macos', 'arm64', 'apple');
 
     expect(deepseek.args[0]).toBe('http://127.0.0.1:3080');
     expect(argumentValue(deepseek, '--identifier')).toBe('com.lizhian.dshweb');
@@ -94,7 +97,7 @@ describe('managed local app release workflow', () => {
   });
 
   it('uses ICNS on macOS and frameless PNG builds on Windows and Linux', () => {
-    const [mac] = plans('macos', 'x64', 'intel');
+    const [mac] = plans('deepseek-harness', 'macos', 'x64', 'intel');
     expect(argumentValue(mac, '--icon')).toMatch(/\.icns$/);
     expect(mac.args).toContain('--hide-title-bar');
     expect(mac.args).toContain('--traffic-light-x');
@@ -102,7 +105,7 @@ describe('managed local app release workflow', () => {
 
     for (const platform of ['windows', 'linux']) {
       const target = platform === 'windows' ? 'arm64' : 'deb-arm64';
-      const [desktop] = plans(platform, 'arm64', target);
+      const [desktop] = plans('deepseek-harness', platform, 'arm64', target);
       expect(argumentValue(desktop, '--icon')).toMatch(/\.png$/);
       expect(desktop.args).toContain('--hide-window-decorations');
       expect(desktop.args).not.toContain('--traffic-light-x');
@@ -126,5 +129,24 @@ describe('managed local app release workflow', () => {
     expect(workflow).toContain('ubuntu-24.04-arm');
     expect(workflow).toContain('macos-15-intel');
     expect(workflow).toContain('macos-15');
+  });
+
+  it('isolates each app job and installs portable cross-platform build prerequisites', () => {
+    const workflow = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        '.github',
+        'workflows',
+        'managed-local-apps.yml',
+      ),
+      'utf8',
+    );
+
+    expect(workflow).toContain('app: [deepseek-harness, pi-web]');
+    expect(workflow).toContain('PAKE_BUILD_APP: ${{ matrix.app }}');
+    expect(workflow).toContain('wix311-binaries.zip');
+    expect(workflow).toContain('Expand-Archive');
+    expect(workflow).not.toContain('Start-Process');
+    expect(workflow).toContain('xdg-utils');
   });
 });

@@ -39,45 +39,54 @@ jobs:
           echo "app_version=${SHORT_YEAR}.${MONTH}.${DAY}" >> "$GITHUB_OUTPUT"
 
   build:
-    name: ${{ matrix.label }}
+    name: ${{ matrix.app }} / ${{ matrix.label }}
     needs: prepare
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
+        app: [deepseek-harness, pi-web]
+        build:
+          [macos-x64, macos-arm64, windows-x64, windows-arm64, linux-x64, linux-arm64]
         include:
-          - label: macOS x64
+          - build: macos-x64
+            label: macOS x64
             os: macos-15-intel
             platform: macos
             arch: x64
             rust_target: x86_64-apple-darwin
             pake_targets: intel
-          - label: macOS ARM64
+          - build: macos-arm64
+            label: macOS ARM64
             os: macos-15
             platform: macos
             arch: arm64
             rust_target: aarch64-apple-darwin
             pake_targets: apple
-          - label: Windows x64
+          - build: windows-x64
+            label: Windows x64
             os: windows-2025
             platform: windows
             arch: x64
             rust_target: x86_64-pc-windows-msvc
             pake_targets: x64
-          - label: Windows ARM64
+          - build: windows-arm64
+            label: Windows ARM64
             os: windows-11-arm
             platform: windows
             arch: arm64
             rust_target: aarch64-pc-windows-msvc
             pake_targets: arm64
-          - label: Linux x64
+          - build: linux-x64
+            label: Linux x64
             os: ubuntu-24.04
             platform: linux
             arch: x64
             rust_target: x86_64-unknown-linux-gnu
             pake_targets: deb,appimage
-          - label: Linux ARM64
+          - build: linux-arm64
+            label: Linux ARM64
             os: ubuntu-24.04-arm
             platform: linux
             arch: arm64
@@ -127,27 +136,46 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
             patchelf \
-            wget
+            wget \
+            xdg-utils
+
+      - name: Cache WiX Toolset
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\wix311
+          key: wix-3.11.2-${{ runner.os }}-${{ runner.arch }}
 
       - name: Ensure WiX Toolset
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $wixPath = "${env:ProgramFiles(x86)}\WiX Toolset v3.11\bin"
-          if (-not (Test-Path "$wixPath\light.exe")) {
-            Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311.exe" -OutFile "$env:RUNNER_TEMP\wix311.exe"
-            Start-Process -FilePath "$env:RUNNER_TEMP\wix311.exe" -ArgumentList "/quiet" -Wait
+          $wixPath = Join-Path $env:RUNNER_TEMP "wix311"
+          $light = Get-ChildItem -Path $wixPath -Filter "light.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if (-not $light) {
+            $archive = Join-Path $env:RUNNER_TEMP "wix311-binaries.zip"
+            Remove-Item -Path $wixPath -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -Path $wixPath -ItemType Directory -Force | Out-Null
+            Invoke-WebRequest -Uri "https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip" -OutFile $archive
+            Expand-Archive -Path $archive -DestinationPath $wixPath -Force
+            $light = Get-ChildItem -Path $wixPath -Filter "light.exe" -Recurse | Select-Object -First 1
           }
-          if (-not (Test-Path "$wixPath\light.exe")) {
-            throw "WiX Toolset installation failed."
+
+          $candle = Get-ChildItem -Path $wixPath -Filter "candle.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $light -or -not $candle) {
+            throw "WiX Toolset binaries are incomplete."
           }
-          $wixPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          $wixBin = $light.Directory.FullName
+          $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Using WiX Toolset from $wixBin"
 
       - name: Restore Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri -> target"
-          shared-key: managed-local-apps-${{ matrix.platform }}-${{ matrix.arch }}
+          shared-key: managed-local-apps-${{ matrix.app }}-${{ matrix.platform }}-${{ matrix.arch }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -197,8 +225,9 @@ jobs:
           fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
-      - name: Build DeepSeek Harness and Pi Web
+      - name: Build managed local app
         env:
+          PAKE_BUILD_APP: ${{ matrix.app }}
           PAKE_BUILD_PLATFORM: ${{ matrix.platform }}
           PAKE_BUILD_ARCH: ${{ matrix.arch }}
           PAKE_BUILD_TARGETS: ${{ matrix.pake_targets }}
@@ -235,7 +264,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: managed-local-apps-${{ matrix.platform }}-${{ matrix.arch }}
+          name: managed-local-apps-${{ matrix.app }}-${{ matrix.platform }}-${{ matrix.arch }}
           path: release/*
           if-no-files-found: error
           retention-days: 3
