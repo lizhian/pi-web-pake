@@ -148,5 +148,6 @@ describe('managed local app release workflow', () => {
     expect(workflow).toContain('Expand-Archive');
     expect(workflow).not.toContain('Start-Process');
     expect(workflow).toContain('xdg-utils');
+    expect(workflow).toContain('PAKE_BUILD_TIMEOUT_MS: "1800000"');
   });
 });

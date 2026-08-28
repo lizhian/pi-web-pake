@@ -39,7 +39,8 @@ export function getInstallTimeout(): number {
 }
 
 export function getBuildTimeout(): number {
-  return 900_000;
+  const timeout = Number(process.env.PAKE_BUILD_TIMEOUT_MS);
+  return Number.isInteger(timeout) && timeout > 0 ? timeout : 900_000;
 }
 
 let packageManagerCache: 'pnpm' | 'npm' | null = null;

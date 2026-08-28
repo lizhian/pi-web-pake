@@ -233,6 +233,7 @@ jobs:
           PAKE_BUILD_TARGETS: ${{ matrix.pake_targets }}
           PAKE_RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           PAKE_APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          PAKE_BUILD_TIMEOUT_MS: "1800000"
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         run: node .github/scripts/build-managed-local-apps.mjs
 

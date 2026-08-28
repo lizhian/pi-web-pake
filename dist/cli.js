@@ -1341,7 +1341,8 @@ function getInstallTimeout() {
     return process.platform === 'win32' ? 900000 : 600000;
 }
 function getBuildTimeout() {
-    return 900000;
+    const timeout = Number(process.env.PAKE_BUILD_TIMEOUT_MS);
+    return Number.isInteger(timeout) && timeout > 0 ? timeout : 900000;
 }
 let packageManagerCache = null;
 function parseMajorVersion(version) {
@@ -2000,8 +2001,7 @@ class WinBuilder extends BaseBuilder {
     getFileName() {
         const { name } = this.options;
         const language = tauriConfig.bundle.windows.wix.language[0];
-        const targetArch = this.getArchDisplayName(this.buildArch);
-        return `${name}_${tauriConfig.version}_${targetArch}_${language}`;
+        return `${name}_${tauriConfig.version}_${this.buildArch}_${language}`;
     }
     getBuildCommand(packageManager = 'pnpm') {
         const configPath = path.join('src-tauri', '.pake', 'tauri.conf.json');
