@@ -21,7 +21,12 @@ jobs:
     outputs:
       release_tag: ${{ steps.version.outputs.release_tag }}
       app_version: ${{ steps.version.outputs.app_version }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v6
+      - name: Plan build matrix
+        id: plan
+        run: echo "matrix=$(node .github/scripts/managed-local-app-plan.mjs --matrix)" >> "$GITHUB_OUTPUT"
       - name: Generate date version
         id: version
         shell: bash
@@ -45,53 +50,7 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix:
-        app: [deepseek-harness, pi-web]
-        build:
-          [macos-x64, macos-arm64, windows-x64, windows-arm64, linux-x64, linux-arm64]
-        include:
-          - build: macos-x64
-            label: macOS x64
-            os: macos-15-intel
-            platform: macos
-            arch: x64
-            rust_target: x86_64-apple-darwin
-            pake_targets: intel
-          - build: macos-arm64
-            label: macOS ARM64
-            os: macos-15
-            platform: macos
-            arch: arm64
-            rust_target: aarch64-apple-darwin
-            pake_targets: apple
-          - build: windows-x64
-            label: Windows x64
-            os: windows-2025
-            platform: windows
-            arch: x64
-            rust_target: x86_64-pc-windows-msvc
-            pake_targets: x64
-          - build: windows-arm64
-            label: Windows ARM64
-            os: windows-11-arm
-            platform: windows
-            arch: arm64
-            rust_target: aarch64-pc-windows-msvc
-            pake_targets: arm64
-          - build: linux-x64
-            label: Linux x64
-            os: ubuntu-24.04
-            platform: linux
-            arch: x64
-            rust_target: x86_64-unknown-linux-gnu
-            pake_targets: deb,appimage
-          - build: linux-arm64
-            label: Linux ARM64
-            os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-            rust_target: aarch64-unknown-linux-gnu
-            pake_targets: deb-arm64,appimage-arm64
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -290,15 +249,9 @@ jobs:
           merge-multiple: true
 
       - name: Verify release assets
-        shell: bash
-        run: |
-          set -euo pipefail
-          find release -maxdepth 1 -type f -print | sort
-          ASSET_COUNT="$(find release -maxdepth 1 -type f | wc -l | tr -d ' ')"
-          if [ "$ASSET_COUNT" -ne 16 ]; then
-            echo "Expected 16 release assets, found $ASSET_COUNT."
-            exit 1
-          fi
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+        run: node .github/scripts/managed-local-app-plan.mjs --verify-assets "$RELEASE_TAG"
 
       - name: Create release and upload installers
         shell: bash
@@ -322,7 +275,7 @@ jobs:
             gh release create "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
               --title "Managed local apps $RELEASE_TAG" \
-              --notes "DeepSeek Harness and Pi Web clients for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. The corresponding dsh or pi-web executable must be available on the client PATH."
+              --notes "Managed local web clients for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. Each recipe executable must be available on the client PATH."
           fi
 
           gh release upload "$RELEASE_TAG" release/* --clobber

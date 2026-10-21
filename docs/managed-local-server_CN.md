@@ -57,22 +57,27 @@ node dist/cli.js http://127.0.0.1:30141 \
 
 ## Fork 维护边界
 
-扩展的大部分行为由上游不存在的独立文件负责：
+CLI 增强入口委托 `bin/extensions/managed-local-app/` 内的公共类型、参数解析、服务校验和窗口覆盖。配置加载器只分发一次增强字段；上游原有数值校验和精确 origin 权限生成继续负责原有行为。
 
-- `bin/extensions/managed-local-app.ts`：CLI 参数、校验、配置规则、窗口覆盖和 loopback capability 生成。
-- `src-tauri/src/local_server.rs`：通过 Cargo feature 控制的 Tauri plugin，以及跨平台进程生命周期。
-- `src-tauri/src/inject/managed-window.js`：自定义拖拽区域覆盖。
-- `tests/unit/server-*.test.ts`、`style-drag-region.test.js` 和 `managed-server-feature.test.ts`：fork 功能测试。
+原生实现封装在 `src-tauri/extensions/pake-enhancements` workspace crate 中。应用只保留单实例插件之后的运行时入口，以及所有窗口共用的构建入口。通过 flatten 配置保留现有 JSON 字段。窗口定制独立于 `managed-server` feature；对话框和进程管理依赖仅在受管理服务构建中启用。
 
-上游集成面只保留在 CLI program、参数解析、配置合并、构建 feature 列表、共享类型以及 Tauri 窗口/应用初始化中的少量挂钩。默认 `pake.json`、上游注入样式、上游 CLI 文档、Agent 契约和上游测试快照保持不变。
+应用配方与平台目标集中在 `.github/managed-local-apps.json`，发布流程据此生成构建矩阵和预期产物文件名。增加应用只需增加配方，现有应用标识和发布文件名保持兼容。
 
-同步 `upstream/main` 后执行：
+上游测试完整保留。增强单元测试为 12 个 TypeScript 用例和 4 个 Rust 进程生命周期用例；`tests/integration/managed-local-app.mjs` 通过同一个通用原生夹具验证普通构建、并发启动、CSP 弹窗、最小化后服务存活和退出清理。Pi Web 注入测试单独维护。
+
+同步上游后执行：
 
 ```shell
 pnpm run cli:build
-npx vitest run
+pnpm exec vitest run
 cd src-tauri
-cargo test
-cargo test --features managed-server
-cargo clippy --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --lib
+cargo test --locked --workspace --lib --features managed-server
+cargo test --locked --workspace --lib --features runtime-template
+cargo test --locked --workspace --lib --features managed-server,runtime-template
+cargo clippy --locked --workspace --all-targets --features managed-server,runtime-template -- -D warnings
+cd ..
+node tests/integration/managed-local-app.mjs
 ```
+
+Enhancement Compatibility 工作流在 macOS、Linux、Windows x64 和 Windows ARM64 上执行四种 feature 组合的测试、Clippy 和原生验收；ARM64 任务还检查实际 MSI 的平台元数据。Linux 原生验收使用 Xvfb 和 D-Bus 会话。

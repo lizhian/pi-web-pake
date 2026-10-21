@@ -1,0 +1,76 @@
+{
+  "apps": [
+    {
+      "slug": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "identifier": "com.lizhian.dshweb",
+      "url": "http://127.0.0.1:3080",
+      "port": "3080",
+      "command": "dsh --profile web --no-open --host 127.0.0.1 --port 3080",
+      "dragRegionHeight": "20",
+      "macIcon": "src-tauri/icons/dsh_web.icns",
+      "desktopIcon": "src-tauri/icons/dsh_web.png"
+    },
+    {
+      "slug": "pi-web",
+      "name": "Pi Web",
+      "identifier": "com.lizhian.piweb",
+      "url": "http://127.0.0.1:30141",
+      "port": "30141",
+      "command": "pi-web --hostname 127.0.0.1 --port 30141 --no-open",
+      "dragRegionHeight": "10",
+      "macIcon": "src-tauri/icons/pi_web.icns",
+      "desktopIcon": "src-tauri/icons/pi_web.png"
+    }
+  ],
+  "builds": [
+    {
+      "label": "macOS x64",
+      "os": "macos-15-intel",
+      "platform": "macos",
+      "arch": "x64",
+      "rust_target": "x86_64-apple-darwin",
+      "pake_targets": "intel"
+    },
+    {
+      "label": "macOS ARM64",
+      "os": "macos-15",
+      "platform": "macos",
+      "arch": "arm64",
+      "rust_target": "aarch64-apple-darwin",
+      "pake_targets": "apple"
+    },
+    {
+      "label": "Windows x64",
+      "os": "windows-2025",
+      "platform": "windows",
+      "arch": "x64",
+      "rust_target": "x86_64-pc-windows-msvc",
+      "pake_targets": "x64"
+    },
+    {
+      "label": "Windows ARM64",
+      "os": "windows-11-arm",
+      "platform": "windows",
+      "arch": "arm64",
+      "rust_target": "aarch64-pc-windows-msvc",
+      "pake_targets": "arm64"
+    },
+    {
+      "label": "Linux x64",
+      "os": "ubuntu-24.04",
+      "platform": "linux",
+      "arch": "x64",
+      "rust_target": "x86_64-unknown-linux-gnu",
+      "pake_targets": "deb,appimage"
+    },
+    {
+      "label": "Linux ARM64",
+      "os": "ubuntu-24.04-arm",
+      "platform": "linux",
+      "arch": "arm64",
+      "rust_target": "aarch64-unknown-linux-gnu",
+      "pake_targets": "deb-arm64,appimage-arm64"
+    }
+  ]
+}

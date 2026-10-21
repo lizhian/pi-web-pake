@@ -57,22 +57,27 @@ node dist/cli.js http://127.0.0.1:30141 \
 
 ## Fork Maintenance Boundary
 
-Most extension behavior is owned by files that do not exist upstream:
+The CLI enhancement facade delegates to contracts, option parsing, server validation and window overrides under `bin/extensions/managed-local-app/`. The config loader dispatches extension fields once; upstream numeric validation and origin capability generation remain authoritative for upstream behavior.
 
-- `bin/extensions/managed-local-app.ts`: CLI options, validation, config rules, window overrides, and loopback capability generation.
-- `src-tauri/src/local_server.rs`: the feature-gated Tauri plugin and cross-platform process lifecycle.
-- `src-tauri/src/inject/managed-window.js`: custom drag-region override.
-- `tests/unit/server-*.test.ts`, `style-drag-region.test.js`, and `managed-server-feature.test.ts`: fork behavior tests.
+The native implementation lives in the `src-tauri/extensions/pake-enhancements` workspace crate. The application retains a runtime adapter after single-instance registration and a window-builder adapter shared by every window. Flattened configuration preserves the existing JSON fields. Window settings work independently of the optional `managed-server` feature; its dialog and process-management dependencies are enabled only for managed builds.
 
-The upstream integration surface is intentionally limited to small hooks in the CLI program, option resolver, config merge, builder feature list, shared types, and Tauri window/app setup. The normal `pake.json`, upstream injected styles, upstream CLI docs, agent contract, and upstream test snapshots remain unchanged.
+Application recipes and runner targets live in `.github/managed-local-apps.json`. The release workflow derives its matrix and expected artifact filenames from this data. Add another application through a recipe rather than editing the builder. Existing identifiers and release names stay stable.
 
-After syncing `upstream/main`, run:
+All upstream tests are retained. The enhancement suite has 12 TypeScript cases and four Rust process-lifecycle cases. `tests/integration/managed-local-app.mjs` uses one generic native fixture for ordinary builds, concurrent managed startup, CSP popups, minimized-window service survival and cleanup on exit. Pi Web injection tests are maintained separately.
+
+After syncing upstream, run:
 
 ```shell
 pnpm run cli:build
-npx vitest run
+pnpm exec vitest run
 cd src-tauri
-cargo test
-cargo test --features managed-server
-cargo clippy --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --lib
+cargo test --locked --workspace --lib --features managed-server
+cargo test --locked --workspace --lib --features runtime-template
+cargo test --locked --workspace --lib --features managed-server,runtime-template
+cargo clippy --locked --workspace --all-targets --features managed-server,runtime-template -- -D warnings
+cd ..
+node tests/integration/managed-local-app.mjs
 ```
+
+The Enhancement Compatibility workflow runs the four feature configurations and Clippy on macOS, Linux, Windows x64 and Windows ARM64, then runs the native fixture. The ARM64 job also verifies a real MSI's platform metadata. Linux native acceptance uses Xvfb and a D-Bus session.
