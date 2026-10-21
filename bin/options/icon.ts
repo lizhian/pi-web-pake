@@ -687,8 +687,6 @@ export async function downloadIcon(
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       if (response.status === 404 && !showSpinner) {
         return null;
@@ -712,7 +710,6 @@ export async function downloadIcon(
 
     return await saveIconFile(arrayBuffer, extension);
   } catch (error: unknown) {
-    clearTimeout(timeoutId);
     if (showSpinner) {
       if (error instanceof Error && error.name === 'AbortError') {
         logger.error('Icon download timed out!');
@@ -724,6 +721,8 @@ export async function downloadIcon(
       }
     }
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -24,14 +24,25 @@ const EXTRA_STRING_KEYS = new Set(['name', 'title', 'identifier']);
 
 type ExpectedType = 'string' | 'number' | 'boolean' | 'string[]';
 
+type NumberRange = { min: number; max?: number; integer?: boolean };
+
 // Numeric fields share the CLI flag ranges (see cli-program.ts validators),
 // so a config file cannot smuggle a value the same flag would reject.
-const NUMBER_RANGES: Record<string, { min: number; max?: number }> = {
+// Like --zoom, zoom must be an integer: pake.json stores it as a Rust u32.
+const NUMBER_RANGES: Record<string, NumberRange> = {
   width: { min: 0 },
   height: { min: 0 },
   minWidth: { min: 0 },
   minHeight: { min: 0 },
-  zoom: { min: 50, max: 200 },
+  zoom: { min: 50, max: 200, integer: true },
+};
+
+// Fields whose CLI flag restricts the value set (see the .choices() calls in
+// cli-program.ts), so a config file cannot smuggle a value the same flag
+// would reject. Without this, an unknown value falls through to the builder's
+// own fallback and silently produces the default behavior.
+const ENUM_VALUES: Record<string, readonly string[]> = {
+  windowsToolchain: ['msvc', 'gnu'],
 };
 
 function expectedTypeFor(key: string): ExpectedType | null {
@@ -127,20 +138,33 @@ export async function loadConfigFile(
         },
       );
     }
+    const allowed = ENUM_VALUES[key];
+    if (allowed && !allowed.includes(value as string)) {
+      throw new PakeError(
+        `Config field "${key}" must be one of: ${allowed.join(', ')}.`,
+        {
+          code: 'INVALID_INPUT',
+          hint: 'See schema/pake.schema.json for allowed values.',
+        },
+      );
+    }
+
     if (typeof value === 'number') {
       const managedRule = getManagedLocalAppConfigRule(key);
       const range = NUMBER_RANGES[key] ?? managedRule?.range;
       const min = range?.min ?? 0;
       const max = range?.max;
+      const integer = range?.integer === true || managedRule?.integer === true;
       if (
         !Number.isFinite(value) ||
-        (managedRule?.integer && !Number.isInteger(value)) ||
+        (integer && !Number.isInteger(value)) ||
         value < min ||
         (max !== undefined && value > max)
       ) {
         const bounds = max !== undefined ? `${min}-${max}` : `>= ${min}`;
+        const kind = integer ? 'an integer' : 'a finite number';
         throw new PakeError(
-          `Config field "${key}" must be a finite number (${bounds}).`,
+          `Config field "${key}" must be ${kind} (${bounds}).`,
           {
             code: 'INVALID_INPUT',
             hint: 'See schema/pake.schema.json for field ranges.',

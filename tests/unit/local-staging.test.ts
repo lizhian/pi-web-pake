@@ -15,6 +15,7 @@ vi.mock('@/utils/dir', async () => {
   const base = nodePath.join(nodeOs.tmpdir(), `pake-staging-${process.pid}`);
   return {
     npmDirectory: nodePath.join(base, 'pkg'),
+    packageDirectory: nodePath.join(base, 'pkg'),
     tauriConfigDirectory: nodePath.join(base, 'pkg', 'src-tauri', '.pake'),
   };
 });
@@ -89,6 +90,28 @@ describe('stageLocalTree via handleLocalFile', () => {
       'dev',
     );
     expect(await fsExtra.pathExists(path.join(dist, 'index.html'))).toBe(false);
+    expect(await fsExtra.pathExists(path.join(fakePkg, 'dist_bak'))).toBe(
+      false,
+    );
+  });
+
+  it('restoreLocalTree also removes a single local file copied into dist', async () => {
+    const userDir = await makeUserDir('single');
+    const conf = makeTauriConf();
+    await handleLocalFile(path.join(userDir, 'index.html'), false, conf);
+
+    const dist = path.join(fakePkg, 'dist');
+    expect(await fsExtra.pathExists(path.join(dist, 'index.html'))).toBe(true);
+    expect(conf.pake.windows[0].url).toBe('index.html');
+
+    restoreLocalTree();
+
+    // Without a backup the copied file stayed in dist and leaked into the
+    // next app built from the same checkout.
+    expect(await fsExtra.pathExists(path.join(dist, 'index.html'))).toBe(false);
+    expect(await fsExtra.readFile(path.join(dist, 'dev.js'), 'utf8')).toBe(
+      'dev',
+    );
     expect(await fsExtra.pathExists(path.join(fakePkg, 'dist_bak'))).toBe(
       false,
     );

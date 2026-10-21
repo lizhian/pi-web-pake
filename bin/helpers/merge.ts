@@ -16,7 +16,11 @@ import {
   TauriPlatform,
   WindowConfig,
 } from '@/types';
-import { tauriConfigDirectory, npmDirectory } from '@/utils/dir';
+import {
+  tauriConfigDirectory,
+  npmDirectory,
+  packageDirectory,
+} from '@/utils/dir';
 import { PakeError } from '@/utils/error';
 import { LINUX_TARGET_TYPES, resolveLinuxBundleTargets } from '@/utils/targets';
 import { applyManagedLocalAppConfig } from '@/extensions/managed-local-app';
@@ -51,6 +55,8 @@ export function buildWindowConfigOverrides(
     disabled_web_shortcuts: options.disabledWebShortcuts,
     hide_on_close: platformHideOnClose,
     incognito: options.incognito,
+    restore_last_url: options.restoreLastUrl,
+    password_autosave: options.passwordAutosave,
     title: options.title,
     enable_wasm: options.wasm,
     enable_drag_drop: options.enableDragDrop,
@@ -124,8 +130,11 @@ async function stageLocalTree(sourceDir: string): Promise<void> {
   const resolvedPackage = await fsExtra
     .realpath(npmDirectory)
     .catch(() => path.resolve(npmDirectory));
+  const installedPackage = await fsExtra.realpath(packageDirectory);
   const packageDist = path.join(resolvedPackage, 'dist');
   if (
+    resolvedSource === installedPackage ||
+    installedPackage.startsWith(resolvedSource + path.sep) ||
     resolvedSource === resolvedPackage ||
     resolvedPackage.startsWith(resolvedSource + path.sep) ||
     resolvedSource === packageDist ||
@@ -227,8 +236,13 @@ export async function handleLocalFile(
   const distDir = path.join(npmDirectory, 'dist');
 
   if (!useLocalFile) {
-    const urlPath = path.join(distDir, fileName);
-    await fsExtra.copy(url, urlPath);
+    // Back up the original dist first, as stageLocalTree does, so
+    // restoreLocalTree can take this file out again after the run.
+    const distBakDir = path.join(npmDirectory, 'dist_bak');
+    if (!(await fsExtra.pathExists(distBakDir))) {
+      await fsExtra.copy(distDir, distBakDir);
+    }
+    await fsExtra.copy(url, path.join(distDir, fileName));
   } else {
     await stageLocalTree(path.dirname(url));
   }
@@ -255,8 +269,23 @@ Icon=${linuxBinaryName}
 Categories=Network;WebBrowser;Utility;
 MimeType=text/html;text/xml;application/xhtml_xml;
 StartupNotify=true
+StartupWMClass=${linuxBinaryName}
 Terminal=false
 `;
+}
+
+// Tauri always writes its own desktop entry into deb and rpm payloads, so
+// shipping Pake's entry as an extra file left two launchers in the app menu.
+// Rendering Pake's content through that single entry keeps exactly one.
+export function applyLinuxDesktopTemplate(
+  linuxBundle: NonNullable<PakeTauriConfig['bundle']['linux']>,
+  templatePath: string,
+): void {
+  linuxBundle.deb.desktopTemplate = templatePath;
+  if (!linuxBundle.rpm) {
+    linuxBundle.rpm = {};
+  }
+  linuxBundle.rpm.desktopTemplate = templatePath;
 }
 
 async function mergeLinuxConfig(
@@ -286,17 +315,7 @@ async function mergeLinuxConfig(
   await fsExtra.ensureDir(srcAssetsDir);
   await fsExtra.writeFile(srcDesktopFilePath, desktopContent);
 
-  const desktopInstallPath = `/usr/share/applications/${desktopFileName}`;
-  linuxBundle.deb.files = {
-    [desktopInstallPath]: `assets/${desktopFileName}`,
-  };
-
-  if (!linuxBundle.rpm) {
-    linuxBundle.rpm = {};
-  }
-  linuxBundle.rpm.files = {
-    [desktopInstallPath]: `assets/${desktopFileName}`,
-  };
+  applyLinuxDesktopTemplate(linuxBundle, `assets/${desktopFileName}`);
 
   // options.targets reaches here already stripped of any -arm64 suffix by the
   // LinuxBuilder constructor, and may carry several comma-separated formats
@@ -476,6 +495,7 @@ async function injectCustomCode(
   }
 
   tauriConf.pake.proxy_url = proxyUrl || '';
+  tauriConf.pake.download_dir = options.downloadDir || '';
   tauriConf.pake.basic_auth = basicAuth;
   tauriConf.pake.multi_instance = multiInstance;
   tauriConf.pake.multi_window = multiWindow;

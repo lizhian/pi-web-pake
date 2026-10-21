@@ -203,16 +203,20 @@ describe('BaseBuilder guards', () => {
   it('uses official npm registry by default', () => {
     const command = getInstallCommand('pnpm', false);
 
-    expect(command).toContain('pnpm install');
-    expect(command).not.toContain('registry.npmmirror.com');
+    expect(command).toEqual({ executable: 'pnpm', args: ['install'] });
   });
 
   it('uses npmmirror only when CN mirror is enabled', () => {
     const command = getInstallCommand('npm', true);
 
-    expect(command).toContain(
-      'npm install --registry=https://registry.npmmirror.com --legacy-peer-deps',
-    );
+    expect(command).toEqual({
+      executable: 'npm',
+      args: [
+        'install',
+        '--registry=https://registry.npmmirror.com',
+        '--legacy-peer-deps',
+      ],
+    });
   });
 
   it('uses pnpm when the installed major matches the pinned package manager', async () => {
@@ -342,11 +346,43 @@ describe('BaseBuilder guards', () => {
     } as any);
 
     const command = (builder as any).getBuildCommand('pnpm');
-    const normalizedCommand = command.replace(/\\/g, '/');
+    const normalizedCommand = command.args.join(' ').replace(/\\/g, '/');
 
     expect(normalizedCommand).toContain('src-tauri/.pake/tauri.conf.json');
-    expect(command).toContain('--features cli-build');
+    expect(command.args).toContain('--features');
+    expect(
+      command.args.find((arg: string) => arg.startsWith('cli-build')),
+    ).toBeTruthy();
   });
+
+  it.each(['npm', 'pnpm'])(
+    'preserves build arguments for %s',
+    (packageManager) => {
+      const builder = new TestBuilder({ debug: true } as any);
+      const configPath = path.join(
+        'config with spaces',
+        '$(printf untouched).json',
+      );
+      const command = (builder as any).buildBaseCommand(
+        packageManager,
+        configPath,
+        'aarch64-apple-darwin',
+      );
+      expect(command.executable).toBe(packageManager);
+      expect(command.args.slice(0, packageManager === 'npm' ? 3 : 2)).toEqual(
+        packageManager === 'npm'
+          ? ['run', 'build:debug', '--']
+          : ['run', 'build:debug'],
+      );
+      const configIndex = command.args.indexOf('-c');
+      expect(command.args[configIndex + 1]).toBe(configPath);
+      expect(command.args.slice(configIndex + 2, configIndex + 5)).toEqual([
+        '--target',
+        'aarch64-apple-darwin',
+        '--verbose',
+      ]);
+    },
+  );
 
   it('copies Windows build artifacts from CARGO_TARGET_DIR when it is set', () => {
     const cargoTargetDir = path.join(process.cwd(), '.short-cargo-target');
@@ -391,6 +427,8 @@ describe('BaseBuilder guards', () => {
   it('uses the Tauri MSI architecture label for Windows ARM64 artifacts', () => {
     const builder = new WinBuilder({
       name: 'ChatGPT',
+      appVersion: '1.0.0',
+      installerLanguage: 'en-US',
       targets: 'arm64',
     } as any);
 

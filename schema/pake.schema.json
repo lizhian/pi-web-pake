@@ -97,6 +97,11 @@
       "description": "Debug build with more output.",
       "default": false
     },
+    "downloadDir": {
+      "type": "string",
+      "description": "App download directory: an absolute path or ~/path resolved against the app user's home at runtime. Empty uses system Downloads. Created on first download if missing.",
+      "default": ""
+    },
     "proxyUrl": {
       "type": "string",
       "description": "Proxy URL for all network requests (http://, https://, socks5://).",
@@ -115,6 +120,11 @@
     "targets": {
       "type": "string",
       "description": "Build target format. Linux: deb/appimage/rpm/zst and *-arm64 variants (comma-separated allowed); Windows: x64/arm64; macOS: intel/apple/universal/app/dmg. Defaults to the platform installer format."
+    },
+    "windowsToolchain": {
+      "type": "string",
+      "enum": ["msvc", "gnu"],
+      "description": "Windows Rust toolchain: msvc (default, requires Visual Studio Build Tools) or gnu (MinGW/MSYS2, for machines without them). Windows only; ignored elsewhere."
     },
     "appVersion": {
       "type": "string",
@@ -160,9 +170,19 @@
       "type": "boolean",
       "description": "Hide the window on close instead of exiting. Defaults to true on macOS, false elsewhere."
     },
+    "restoreLastUrl": {
+      "type": "boolean",
+      "description": "Restore the last main-window URL on launch. Set false to open the packaged URL while keeping cookies and storage. Ignored in incognito mode and for local pages.",
+      "default": true
+    },
     "incognito": {
       "type": "boolean",
       "description": "Launch in incognito/private mode (no persisted cookies or storage).",
+      "default": false
+    },
+    "passwordAutosave": {
+      "type": "boolean",
+      "description": "Enable native WebView2 password-save prompts on Windows. Disabled in incognito mode. Uses the app's own profile; existing saved passwords may still autofill when disabled.",
       "default": false
     },
     "wasm": {
@@ -226,7 +246,7 @@
       "default": "en-US"
     },
     "zoom": {
-      "type": "number",
+      "type": "integer",
       "description": "Initial page zoom level (50-200).",
       "default": 100,
       "minimum": 50,

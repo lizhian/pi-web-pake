@@ -4,20 +4,27 @@ import chalk from 'chalk';
 import prompts from 'prompts';
 
 import { PakeAppOptions } from '@/types';
-import { checkRustInstalled, ensureRustEnv, installRust } from '@/helpers/rust';
+import {
+  checkRustInstalled,
+  ensureRustEnv,
+  hasWindowsGnuToolchain,
+  hasWindowsMsvcBuildTools,
+  installRust,
+} from '@/helpers/rust';
 import { mergeConfig } from '@/helpers/merge';
 import tauriConfig from '@/helpers/tauriConfig';
 import {
   generateIdentifierSafeName,
   generateLinuxPackageName,
 } from '@/utils/name';
-import { npmDirectory } from '@/utils/dir';
+import { npmDirectory, packageDirectory } from '@/utils/dir';
 import { PakeError } from '@/utils/error';
 import { getSpinner } from '@/utils/info';
 import { BuildArtifact, isInteractive } from '@/utils/output';
-import { shellExec } from '@/utils/shell';
+import { shellExec, type ShellCommand } from '@/utils/shell';
+import { hasReadyTauriCli } from '@/utils/tauri-cli';
 import { CN_MIRROR_ENV, isCnMirrorEnabled } from '@/utils/mirror';
-import { IS_MAC } from '@/utils/platform';
+import { IS_MAC, IS_WIN } from '@/utils/platform';
 import logger from '@/options/logger';
 import { getManagedServerBuildFeatures } from '@/extensions/managed-local-app';
 import {
@@ -27,6 +34,7 @@ import {
   getBuildTimeout,
   getInstallCommand,
   getInstallTimeout,
+  getWindowsGnuBuildEnvironment,
 } from './env';
 // Appended to the error when a Linux AppImage build fails for good. linuxdeploy's
 // diagnostics stream to the terminal (stdio: 'inherit') and never reach
@@ -123,7 +131,7 @@ export default abstract class BaseBuilder {
 
   async prepare() {
     const tauriSrcPath = path.join(npmDirectory, 'src-tauri');
-    const tauriTargetPath = path.join(tauriSrcPath, 'target');
+    const tauriTargetPath = this.getCargoTargetDir();
     const tauriTargetPathExists = await fsExtra.pathExists(tauriTargetPath);
 
     if (!IS_MAC && !tauriTargetPathExists) {
@@ -132,6 +140,20 @@ export default abstract class BaseBuilder {
     }
 
     ensureRustEnv();
+
+    if (
+      IS_WIN &&
+      this.options.windowsToolchain !== 'gnu' &&
+      !hasWindowsMsvcBuildTools() &&
+      hasWindowsGnuToolchain()
+    ) {
+      logger.warn(
+        '✼ No Visual Studio Build Tools detected, but a MinGW/GNU toolchain (gcc) is available.',
+      );
+      logger.warn(
+        '✼ If the build fails to link, retry with --windows-toolchain gnu.',
+      );
+    }
 
     if (!checkRustInstalled()) {
       if (!isInteractive()) {
@@ -157,10 +179,26 @@ export default abstract class BaseBuilder {
       }
     }
 
-    const spinner = getSpinner('Installing package...');
     const useCnMirror = isCnMirrorEnabled();
     await configureCargoRegistry(tauriSrcPath, useCnMirror);
 
+    // Workspaces reuse installed dependencies. Reinstalling through their
+    // node_modules link would mutate the shared CLI installation.
+    if (await hasReadyTauriCli(npmDirectory)) {
+      return;
+    }
+
+    // Dependencies may disappear after the workspace linked them. Reinstall
+    // privately even in that case, without writing through to the source tree.
+    const modules = path.join(npmDirectory, 'node_modules');
+    if (
+      npmDirectory !== packageDirectory &&
+      (await fsExtra.lstat(modules).catch(() => null))?.isSymbolicLink()
+    ) {
+      await fsExtra.unlink(modules);
+    }
+
+    const spinner = getSpinner('Installing package...');
     const packageManager = await detectPackageManager();
     const timeout = getInstallTimeout();
     const buildEnv = getBuildEnvironment();
@@ -209,7 +247,7 @@ export default abstract class BaseBuilder {
 
   async start(url: string) {
     logger.info('Pake dev server starting...');
-    await mergeConfig(url, this.options, tauriConfig);
+    await mergeConfig(url, this.options, structuredClone(tauriConfig));
 
     const packageManager = await detectPackageManager();
     const configPath = path.join(
@@ -220,33 +258,41 @@ export default abstract class BaseBuilder {
     );
 
     const features = this.getBuildFeatures();
-    const featureArgs =
-      features.length > 0 ? `--features ${features.join(',')}` : '';
+    const args = ['run', 'tauri'];
+    if (packageManager === 'npm') args.push('--');
+    args.push('dev', '--config', configPath);
+    if (features.length > 0) args.push('--features', features.join(','));
 
-    const argSeparator = packageManager === 'npm' ? ' --' : '';
-    const command = `cd "${npmDirectory}" && ${packageManager} run tauri${argSeparator} dev --config "${configPath}" ${featureArgs}`;
-
-    await shellExec(command);
+    await shellExec({ executable: packageManager, args });
   }
 
   async buildAndCopy(url: string, target: string, logSuccess = true) {
-    const { name = 'pake-app' } = this.options;
-    await mergeConfig(url, this.options, tauriConfig);
+    await this.prepareBuild(url);
+    await this.runBuildCommand(
+      this.getBuildCommand(await detectPackageManager()),
+      target,
+    );
+    await this.copyBuildArtifacts(target, logSuccess);
+  }
 
-    const packageManager = await detectPackageManager();
+  protected async prepareBuild(url: string) {
+    await mergeConfig(url, this.options, structuredClone(tauriConfig));
+  }
 
+  protected async runBuildCommand(buildCommand: ShellCommand, target: string) {
     // Build app
     const buildSpinner = getSpinner('Building app...');
-    // Let spinner run for a moment so user can see it, then stop before package manager command
-    await new Promise((resolve) => setTimeout(resolve, 500));
     buildSpinner.stop();
     // Show static message to keep the status visible. Info, not warn: warn
     // entries feed the --json warnings array and this is a status line.
     logger.info('✸ Building app...');
 
     const baseEnv = getBuildEnvironment();
+    const isWindowsGnuBuild =
+      process.platform === 'win32' && this.options.windowsToolchain === 'gnu';
     let buildEnv: Record<string, string> = {
       ...(baseEnv ?? {}),
+      ...(isWindowsGnuBuild ? getWindowsGnuBuildEnvironment() : {}),
       ...(process.env.NO_STRIP ? { NO_STRIP: process.env.NO_STRIP } : {}),
     };
 
@@ -264,7 +310,6 @@ export default abstract class BaseBuilder {
       );
     }
 
-    const buildCommand = `cd "${npmDirectory}" && ${this.getBuildCommand(packageManager)}`;
     const buildTimeout = getBuildTimeout();
 
     try {
@@ -294,7 +339,10 @@ export default abstract class BaseBuilder {
         throw retryError;
       }
     }
+  }
 
+  protected async copyBuildArtifacts(target: string, logSuccess = true) {
+    const { name = 'pake-app' } = this.options;
     // With --no-bundle there is no installer to copy; surface the raw
     // executable the build produced instead.
     if (this.options.bundle === false) {
@@ -433,30 +481,27 @@ export default abstract class BaseBuilder {
     packageManager: string,
     configPath: string,
     target?: string,
-  ): string {
-    const baseCommand = this.options.debug
-      ? `${packageManager} run build:debug`
-      : `${packageManager} run build`;
-
-    const argSeparator = packageManager === 'npm' ? ' --' : '';
-    let fullCommand = `${baseCommand}${argSeparator} -c "${configPath}"`;
+  ): ShellCommand {
+    const args = ['run', this.options.debug ? 'build:debug' : 'build'];
+    if (packageManager === 'npm') args.push('--');
+    args.push('-c', configPath);
 
     if (target) {
-      fullCommand += ` --target ${target}`;
+      args.push('--target', target);
     }
 
     // Enable verbose output in debug mode to help diagnose build issues.
     // This provides detailed logs from Tauri CLI and bundler tools.
     if (this.options.debug) {
-      fullCommand += ' --verbose';
+      args.push('--verbose');
     }
 
     const features = this.getBuildFeatures();
     if (features.length > 0) {
-      fullCommand += ` --features ${features.join(',')}`;
+      args.push('--features', features.join(','));
     }
 
-    return fullCommand;
+    return { executable: packageManager, args };
   }
 
   protected getBuildFeatures(): string[] {
@@ -475,7 +520,7 @@ export default abstract class BaseBuilder {
     return features;
   }
 
-  protected getBuildCommand(packageManager: string = 'pnpm'): string {
+  protected getBuildCommand(packageManager: string = 'pnpm'): ShellCommand {
     // Use temporary config directory to avoid modifying source files
     const configPath = path.join(
       npmDirectory,
@@ -484,11 +529,11 @@ export default abstract class BaseBuilder {
       'tauri.conf.json',
     );
 
-    let fullCommand = this.buildBaseCommand(packageManager, configPath);
+    const fullCommand = this.buildBaseCommand(packageManager, configPath);
 
     // For macOS, use app bundles by default unless DMG is explicitly requested
     if (IS_MAC && this.options.targets === 'app') {
-      fullCommand += ' --bundles app';
+      fullCommand.args.push('--bundles', 'app');
     }
 
     return fullCommand;

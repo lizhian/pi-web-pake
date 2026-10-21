@@ -199,9 +199,7 @@
       return;
     }
 
-    const style = document.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = `
+    const css = `
       #${PANEL_ID} {
         position: fixed;
         top: 14px;
@@ -312,9 +310,16 @@
       }
     `;
 
-    (document.head || document.body || document.documentElement)?.appendChild(
-      style,
-    );
+    if (typeof window.__PAKE_INJECT_STYLE__ === "function") {
+      window.__PAKE_INJECT_STYLE__(css, STYLE_ID);
+    } else {
+      const style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = css;
+      (document.head || document.body || document.documentElement)?.appendChild(
+        style,
+      );
+    }
   }
 
   function createButton(label, title, onClick) {
@@ -522,29 +527,39 @@
   }
 
   function runSearch(query = state.query) {
+    clearTimeout(state.searchTimer);
     state.query = query;
-    clearHighlights();
+    // A full scan includes any pending page edits. Disconnect while replacing
+    // DOM marks so our own mutations cannot schedule another search.
+    stopObservingDocumentChanges();
+    try {
+      clearHighlights();
 
-    if (!query) {
-      state.matches = [];
-      state.activeIndex = -1;
-      state.truncated = false;
+      if (!query) {
+        state.matches = [];
+        state.activeIndex = -1;
+        state.truncated = false;
+        updateCounter();
+        return getState();
+      }
+
+      const result = collectMatches(query);
+      state.matches = result.matches;
+      state.truncated = result.truncated;
+      state.activeIndex = state.matches.length > 0 ? 0 : -1;
+
+      if (!applyCustomHighlights()) {
+        applyDomHighlights();
+      }
+
       updateCounter();
+      scrollActiveIntoView();
       return getState();
+    } finally {
+      if (state.isOpen) {
+        observeDocumentChanges();
+      }
     }
-
-    const result = collectMatches(query);
-    state.matches = result.matches;
-    state.truncated = result.truncated;
-    state.activeIndex = state.matches.length > 0 ? 0 : -1;
-
-    if (!applyCustomHighlights()) {
-      applyDomHighlights();
-    }
-
-    updateCounter();
-    scrollActiveIntoView();
-    return getState();
   }
 
   function debounceSearch(query) {

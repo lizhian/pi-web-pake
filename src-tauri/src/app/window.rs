@@ -1,7 +1,9 @@
 use crate::app::config::PakeConfig;
+#[cfg(target_os = "windows")]
+use crate::app::navigation::set_password_autosave;
 use crate::util::{
-    check_file_or_append, get_data_dir, get_download_message_with_lang, sanitize_download_filename,
-    show_toast, MessageType,
+    check_file_or_append, data_dir_name, get_data_dir, get_download_dir,
+    get_download_message_with_lang, sanitize_download_filename, show_toast, MessageType,
 };
 #[cfg(target_os = "macos")]
 use dispatch::Queue;
@@ -83,7 +85,34 @@ impl MultiWindowState {
 
     fn next_window_label(&self) -> String {
         let index = self.next_window_index.fetch_add(1, Ordering::Relaxed) + 1;
-        format!("pake-{index}")
+        format!("{SECONDARY_WINDOW_LABEL_PREFIX}{index}")
+    }
+}
+
+/// Secondary windows (Cmd+N clones, `--new-window` popups, blank two-stage
+/// popups) take `pake-N` labels. `capabilities/default.json` must cover them
+/// with a matching glob: an uncovered label has every IPC call denied, so
+/// external links, downloads and toasts silently stop working there.
+const SECONDARY_WINDOW_LABEL_PREFIX: &str = "pake-";
+
+#[cfg(test)]
+mod capability_tests {
+    use super::SECONDARY_WINDOW_LABEL_PREFIX;
+
+    #[test]
+    fn the_capability_covers_secondary_window_labels() {
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../../capabilities/default.json"))
+                .expect("capabilities/default.json should be valid JSON");
+        let webviews: Vec<&str> = capability["webviews"]
+            .as_array()
+            .expect("the capability should list its webviews")
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .collect();
+
+        assert!(webviews.contains(&"pake"));
+        assert!(webviews.contains(&format!("{SECONDARY_WINDOW_LABEL_PREFIX}*").as_str()));
     }
 }
 
@@ -177,6 +206,31 @@ struct WindowBuildOptions<'a> {
     url: WebviewUrl,
     visible: bool,
     new_window_features: Option<NewWindowFeatures>,
+}
+
+fn is_blank_popup_url(url: &Url) -> bool {
+    url.scheme() == "about" && url.path() == "blank"
+}
+
+#[cfg(test)]
+mod popup_tests {
+    use super::is_blank_popup_url;
+    use tauri::Url;
+
+    #[test]
+    fn only_blank_documents_get_the_default_popup_exception() {
+        for input in ["about:blank", "about:blank#download", "about:blank?pending"] {
+            assert!(is_blank_popup_url(&Url::parse(input).unwrap()));
+        }
+        for input in [
+            "https://example.com/",
+            "about:srcdoc",
+            "about:blankness",
+            "file:///tmp/file",
+        ] {
+            assert!(!is_blank_popup_url(&Url::parse(input).unwrap()));
+        }
+    }
 }
 
 fn open_requested_window(
@@ -367,11 +421,8 @@ fn build_window(
     #[cfg(target_os = "macos")]
     let prefer_native_window_tabbing = use_native_window_tabbing && label != "pake";
 
-    let package_name = tauri_config
-        .product_name
-        .clone()
-        .unwrap_or_else(|| "pake".to_string());
-    let _data_dir = get_data_dir(app, package_name).map_err(tauri::Error::Io)?;
+    let _data_dir =
+        get_data_dir(app, data_dir_name(config, tauri_config)).map_err(tauri::Error::Io)?;
 
     let window_config = config.windows.first().ok_or_else(|| {
         tauri::Error::Io(std::io::Error::new(
@@ -379,6 +430,24 @@ fn build_window(
             "pake.json must define at least one window configuration",
         ))
     })?;
+
+    let restored_url = if label == "pake" && window_config.remembers_last_url() {
+        match app.path().app_data_dir() {
+            Ok(directory) => match crate::util::read_last_url(&directory.join("last-url.txt")) {
+                Ok(url) => url,
+                Err(error) => {
+                    eprintln!("[Pake] Could not read the last URL: {error}");
+                    None
+                }
+            },
+            Err(error) => {
+                eprintln!("[Pake] Could not locate the last URL: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     // On macOS both HTTP Basic auth and certificate bypass use the same
     // navigation-delegate proxy. Start on a neutral page so the proxy is in
@@ -388,10 +457,14 @@ fn build_window(
         && window_config.url_type == "web"
         && (config.basic_auth || window_config.ignore_certificate_errors)
     {
-        Url::parse(&window_config.url).ok()
+        restored_url
+            .clone()
+            .or_else(|| Url::parse(&window_config.url).ok())
     } else {
         None
     };
+
+    let url = restored_url.map(WebviewUrl::External).unwrap_or(url);
 
     // The delegate must be installed before the first TLS challenge. Start on
     // a neutral page, then navigate from the with_webview callback below.
@@ -472,11 +545,17 @@ fn build_window(
         window_builder = window_builder.disable_drag_drop_handler();
     }
 
-    if window_config.new_window {
+    {
+        let allow_new_window = window_config.new_window;
         let app_handle = app.clone();
         let popup_config = config.clone();
         let popup_tauri_config = tauri_config.clone();
         window_builder = window_builder.on_new_window(move |target_url, features| {
+            // Even without --new-window, two-stage popups need a real webview
+            // with our download delegate, never a proxy for the main window.
+            if !allow_new_window && !is_blank_popup_url(&target_url) {
+                return NewWindowResponse::Deny;
+            }
             match open_requested_window(
                 &app_handle,
                 &popup_config,
@@ -494,27 +573,51 @@ fn build_window(
     }
 
     // Add initialization scripts. Order matters: pakeConfig must land before
-    // any script that reads it (e.g. fullscreen polyfill checks for an opt-out
-    // flag), and toast must register `window.pakeToast` before Rust code
-    // calls show_toast().
-    window_builder = window_builder.initialization_script(&config_script);
+    // any script that reads it, and toast must register `window.pakeToast`
+    // before Rust code calls show_toast().
+    window_builder = window_builder
+        .initialization_script_for_all_frames(&config_script)
+        .initialization_script_for_all_frames(include_str!("../inject/link_policy.js"))
+        .initialization_script_for_all_frames(include_str!("../inject/auth.js"))
+        .initialization_script_for_all_frames(include_str!("../inject/frame_links.js"));
 
     // find.js is opt-in via --enable-find and no-ops at runtime when disabled,
     // so only inject its ~700 lines when the feature is on. Avoids parsing the
     // find UI on every page load in the common (find-off) case. Matches the
     // enable_find gating already applied to the Find menu item.
+    window_builder = window_builder.initialization_script(include_str!("../inject/styles.js"));
+
     if window_config.enable_find {
         window_builder = window_builder.initialization_script(include_str!("../inject/find.js"));
     }
 
+    window_builder = window_builder.initialization_script(include_str!("../inject/toast.js"));
+
+    // WebView2's native Fullscreen API already drives Tauri's window fullscreen.
+    // Keep its top-layer layout and player controls instead of overriding the API.
+    #[cfg(not(target_os = "windows"))]
+    {
+        window_builder =
+            window_builder.initialization_script(include_str!("../inject/fullscreen.js"));
+    }
+
     window_builder = window_builder
-        .initialization_script(include_str!("../inject/toast.js"))
-        .initialization_script(include_str!("../inject/fullscreen.js"))
         .initialization_script(include_str!("../inject/event.js"))
         .initialization_script(include_str!("../inject/style.js"))
-        .initialization_script(include_str!("../inject/theme_refresh.js"))
-        .initialization_script(include_str!("../inject/auth.js"))
-        .initialization_script(include_str!("../inject/custom.js"));
+        .initialization_script(include_str!("../inject/theme_refresh.js"));
+
+    #[cfg(target_os = "macos")]
+    if window_config.title_bar_follows_page() {
+        window_builder =
+            window_builder.initialization_script(include_str!("../inject/title_bar.js"));
+    }
+
+    window_builder = window_builder.initialization_script(
+        config
+            .runtime_custom_js
+            .as_deref()
+            .unwrap_or(include_str!("../inject/custom.js")),
+    );
 
     if window_config.drag_region_height.is_some() {
         window_builder =
@@ -575,10 +678,17 @@ fn build_window(
     {
         let title_bar_style = if window_config.hide_title_bar {
             TitleBarStyle::Overlay
+        } else if window_config.title_bar_follows_page() {
+            // The page starts below the bar, so the traffic lights never cover
+            // it; title_bar.js paints the bar with the page's top color.
+            TitleBarStyle::Transparent
         } else {
             TitleBarStyle::Visible
         };
         window_builder = window_builder.title_bar_style(title_bar_style);
+        if window_config.title_bar_follows_page() {
+            window_builder = window_builder.hidden_title(true);
+        }
         window_builder = window_builder.theme(theme);
 
         // Tauri disables automatic tabbing unless an identifier is provided.
@@ -652,7 +762,7 @@ fn build_window(
     }
 
     // Capture webview-initiated downloads (blob:, data:, Content-Disposition,
-    // etc.) and write them to the OS Downloads folder. This is essential for
+    // etc.) and write them to the configured download folder. This is essential for
     // sites with a strict Content-Security-Policy (e.g. Gemini): their
     // `connect-src` blocks Tauri's IPC origin, so downloads cannot be routed
     // through the JS bridge, and downloads triggered from a sandboxed iframe
@@ -662,7 +772,7 @@ fn build_window(
         let download_handle = app.clone();
         window_builder = window_builder.on_download(move |webview, event| match event {
             DownloadEvent::Requested { url, destination } => {
-                match download_handle.path().download_dir() {
+                match get_download_dir(&download_handle) {
                     Ok(download_dir) => {
                         let filename = destination
                             .file_name()
@@ -679,10 +789,23 @@ fn build_window(
                         let target = download_dir.join(sanitize_download_filename(&filename));
                         if let Some(path_str) = target.to_str() {
                             *destination = PathBuf::from(check_file_or_append(path_str));
+                        } else {
+                            eprintln!("[Pake] Download destination is not valid UTF-8");
+                            return false;
                         }
                     }
                     Err(error) => {
                         eprintln!("[Pake] Failed to resolve download dir: {error}");
+                        if let Some(window) = download_handle.get_webview_window(webview.label()) {
+                            show_toast(
+                                &window,
+                                &get_download_message_with_lang(
+                                    MessageType::DirectoryFailure,
+                                    None,
+                                ),
+                            );
+                        }
+                        return false;
                     }
                 }
                 true
@@ -722,6 +845,33 @@ fn build_window(
     window_builder = window_builder.on_navigation(|_| true);
 
     let window = window_builder.build()?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let password_autosave = window_config.password_autosave_enabled();
+        if let Err(error) = window.with_webview(move |webview| {
+            set_password_autosave(&webview, password_autosave);
+        }) {
+            eprintln!("[Pake] Failed to access WebView2 for password autosave: {error}");
+        }
+    }
+
+    // Every webview is built here (main window, Cmd+N clones, --new-window and
+    // blank two-stage popups), so trackpad history swipes match in all of them.
+    #[cfg(target_os = "macos")]
+    if let Err(error) = window.with_webview(|webview| {
+        crate::app::navigation::enable_back_forward_gestures(&webview);
+    }) {
+        eprintln!("[Pake] Failed to access WKWebView for history swipe gestures: {error}");
+    }
+
+    // The tab bar's + button exists only while some window class answers
+    // `newWindowForTab:`. Install it for every tabbing window, the main one
+    // included: its tab bar is the one the user sees first.
+    #[cfg(target_os = "macos")]
+    if use_native_window_tabbing {
+        crate::app::tab_bar::install_new_tab_action(app, &window);
+    }
 
     // A shared identifier alone leaves each NSWindow in automatic mode.
     // Prefer tabs only for Cmd+N clones so they join the main window's tab
@@ -776,6 +926,20 @@ fn build_window(
     }
 
     Ok(window)
+}
+
+pub fn save_last_url(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("pake") else {
+        return;
+    };
+    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        let path = app.path().app_data_dir()?.join("last-url.txt");
+        crate::util::write_last_url(&path, &window.url()?)?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!("[Pake] Could not save the last URL: {error}");
+    }
 }
 
 #[cfg(all(test, target_os = "windows"))]

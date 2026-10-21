@@ -13,7 +13,7 @@ describe('managed server capability', () => {
       ),
     );
 
-    expect(capability.remote.urls).toEqual(['https://*.*']);
+    expect(capability.remote).toBeUndefined();
   });
 
   it('adds only the configured loopback origin to managed builds', async () => {

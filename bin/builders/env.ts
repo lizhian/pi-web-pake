@@ -3,8 +3,8 @@ import fsExtra from 'fs-extra';
 
 import { CN_MIRROR_ENV } from '@/utils/mirror';
 import { IS_MAC } from '@/utils/platform';
-import { npmDirectory } from '@/utils/dir';
 import logger from '@/options/logger';
+import type { ShellCommand } from '@/utils/shell';
 import packageJson from '../../package.json';
 
 /**
@@ -28,6 +28,43 @@ export function getBuildEnvironment(): Record<string, string> | undefined {
     CXXFLAGS: '-fno-modules',
     MACOSX_DEPLOYMENT_TARGET: '14.0',
     PATH: buildPath,
+  };
+}
+
+/**
+ * Build scripts and proc-macros compile for the rustup *host* toolchain, not
+ * the `--target` triple, even when cross-compiling. Pake's own
+ * rust-toolchain.toml pins a bare channel (no host), which rustup resolves
+ * against the machine's configured default host, msvc on most Windows
+ * installs, regardless of whether MSVC is actually present. Without this,
+ * a gnu `--target` build still shells out to the (possibly missing) MSVC
+ * `link.exe` for every build script. RUSTUP_TOOLCHAIN is rustup's documented
+ * per-invocation override (read by the cargo/rustc proxies it installs) and
+ * only affects this build subprocess. Left alone if the user already set it.
+ */
+export function getWindowsGnuBuildEnvironment(): Record<string, string> {
+  const excludeAllSymbols = ['-C', 'link-args=-Wl,--exclude-all-symbols'];
+  const existingRustflags = process.env.RUSTFLAGS;
+  const existingEncodedRustflags = process.env.CARGO_ENCODED_RUSTFLAGS;
+  // Cargo prefers encoded flags over RUSTFLAGS, even when set to an empty value.
+  const flags: Record<string, string> =
+    existingEncodedRustflags !== undefined
+      ? {
+          CARGO_ENCODED_RUSTFLAGS: [
+            ...(existingEncodedRustflags ? [existingEncodedRustflags] : []),
+            ...excludeAllSymbols,
+          ].join('\x1f'),
+        }
+      : {
+          RUSTFLAGS: [
+            ...(existingRustflags ? [existingRustflags] : []),
+            ...excludeAllSymbols,
+          ].join(' '),
+        };
+  return {
+    ...flags,
+    RUSTUP_TOOLCHAIN:
+      process.env.RUSTUP_TOOLCHAIN || 'stable-x86_64-pc-windows-gnu',
   };
 }
 
@@ -131,12 +168,11 @@ export async function detectPackageManager(): Promise<'pnpm' | 'npm'> {
 export function getInstallCommand(
   packageManager: string,
   useCnMirror: boolean,
-): string {
-  const registryOption = useCnMirror
-    ? ' --registry=https://registry.npmmirror.com'
-    : '';
-  const peerDepsOption = packageManager === 'npm' ? ' --legacy-peer-deps' : '';
-  return `cd "${npmDirectory}" && ${packageManager} install${registryOption}${peerDepsOption}`;
+): ShellCommand {
+  const args = ['install'];
+  if (useCnMirror) args.push('--registry=https://registry.npmmirror.com');
+  if (packageManager === 'npm') args.push('--legacy-peer-deps');
+  return { executable: packageManager, args };
 }
 
 async function copyFileWithSamePathGuard(

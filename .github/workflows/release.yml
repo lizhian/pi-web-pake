@@ -21,9 +21,17 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+# A re-pushed tag or a manual dispatch must not run a second full matrix against
+# the same release; queue it rather than cancel a run that has already uploaded.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # Build and release popular apps
   release-apps:
+    permissions:
+      contents: read
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) ||
       (github.event_name == 'workflow_dispatch' && inputs.release_apps)
@@ -34,6 +42,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Get Apps Config
         id: read-apps-config
@@ -49,12 +59,53 @@ jobs:
       contents: write
     steps:
       - name: Create release placeholder
-        uses: ncipollo/release-action@v1
+        uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           skipIfReleaseExists: true
 
+  # Keep the moving major tag (e.g. v3) on the latest release so
+  # `uses: tw93/Pake@v3` picks up action fixes without a docs bump.
+  move-major-tag:
+    name: Move Major Action Tag
+    runs-on: ubuntu-latest
+    needs: build-cli
+    if: |
+      needs.build-cli.result == 'success' &&
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/V')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Force-move major tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^V([0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping major tag for non-release tag $RELEASE_TAG"
+            exit 0
+          fi
+          MAJOR="${BASH_REMATCH[1]}"
+          MAJOR_TAG="v$MAJOR"
+          # Only the newest release of this major may own the tag, so re-pushing
+          # an older V tag never moves it back.
+          LATEST_TAG="$(git ls-remote --tags --refs origin "refs/tags/V$MAJOR.*" \
+            | sed 's#.*refs/tags/##' \
+            | grep -E "^V$MAJOR\.[0-9]+\.[0-9]+$" \
+            | sort -V | tail -n 1)"
+          if [ "$RELEASE_TAG" != "$LATEST_TAG" ]; then
+            echo "Skipping $MAJOR_TAG: $RELEASE_TAG is not the latest V$MAJOR release ($LATEST_TAG)"
+            exit 0
+          fi
+          git tag -f "$MAJOR_TAG" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$MAJOR_TAG"
+          echo "Moved $MAJOR_TAG to $GITHUB_SHA ($RELEASE_TAG)"
+
   build-cli:
+    permissions:
+      contents: read
     name: Build CLI
     needs: release-apps
     if: needs.release-apps.result == 'success'
@@ -62,6 +113,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js Environment
         uses: ./.github/actions/setup-env
@@ -79,6 +132,8 @@ jobs:
           retention-days: 1
 
   build-popular-apps:
+    permissions:
+      contents: write
     name: ${{ matrix.config.title }}
     needs: [release-apps, build-cli, create-release]
     if: |
@@ -86,10 +141,18 @@ jobs:
       needs.build-cli.result == 'success' &&
       (needs.create-release.result == 'success' || needs.create-release.result == 'skipped')
     strategy:
+      # One app failing (e.g. a stuck notarization) must not cancel the others.
+      fail-fast: false
       matrix:
         config: ${{ fromJSON(needs.release-apps.outputs.apps_config) }}
     uses: ./.github/workflows/single-app.yaml
-    secrets: inherit
+    secrets:
+      PAKE_SIGNING_IDENTITY: ${{ secrets.PAKE_SIGNING_IDENTITY }}
+      PAKE_CERTIFICATE_P12: ${{ secrets.PAKE_CERTIFICATE_P12 }}
+      PAKE_CERTIFICATE_PASSWORD: ${{ secrets.PAKE_CERTIFICATE_PASSWORD }}
+      PAKE_NOTARIZE_APPLE_ID: ${{ secrets.PAKE_NOTARIZE_APPLE_ID }}
+      PAKE_NOTARIZE_TEAM_ID: ${{ secrets.PAKE_NOTARIZE_TEAM_ID }}
+      PAKE_NOTARIZE_PASSWORD: ${{ secrets.PAKE_NOTARIZE_PASSWORD }}
     with:
       name: ${{ matrix.config.name }}
       title: ${{ matrix.config.title }}
@@ -113,12 +176,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Log in to Container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -126,16 +191,16 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/V') || github.ref == 'refs/heads/main' }}
             type=ref,event=tag
             type=sha
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           push: true

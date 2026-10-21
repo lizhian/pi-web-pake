@@ -101,7 +101,12 @@ function handleWebShortcut(event) {
 function toggleNativeFullscreen(appWindow) {
   appWindow
     .isFullscreen()
-    .then((fullscreen) => appWindow.setFullscreen(!fullscreen))
+    .then((fullscreen) => {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        return document.exitFullscreen();
+      }
+      return appWindow.setFullscreen(!fullscreen);
+    })
     .catch((error) => {
       console.warn("[Pake] Failed to toggle native fullscreen:", error);
     });
@@ -529,52 +534,6 @@ function isDownloadableFile(url) {
   }
 }
 
-// Public suffixes where the registrable domain needs more than two labels.
-// Not exhaustive; covers common packaging targets that last-two-label
-// matching would collapse incorrectly (e.g. amazon.co.uk vs evil.co.uk,
-// or every *.github.io site into one "domain").
-const MULTI_PART_PUBLIC_SUFFIXES = [
-  "co.uk",
-  "org.uk",
-  "ac.uk",
-  "gov.uk",
-  "com.au",
-  "net.au",
-  "org.au",
-  "co.jp",
-  "ne.jp",
-  "or.jp",
-  "co.kr",
-  "co.in",
-  "com.br",
-  "com.cn",
-  "com.tw",
-  "com.hk",
-  "com.sg",
-  "github.io",
-  "gitlab.io",
-  "pages.dev",
-];
-
-function getRootDomain(hostname) {
-  const normalized = String(hostname || "").toLowerCase();
-  if (!normalized) {
-    return "";
-  }
-
-  const parts = normalized.split(".").filter(Boolean);
-  if (parts.length <= 1) {
-    return normalized;
-  }
-
-  const lastTwo = parts.slice(-2).join(".");
-  if (MULTI_PART_PUBLIC_SUFFIXES.includes(lastTwo) && parts.length >= 3) {
-    return parts.slice(-3).join(".");
-  }
-
-  return lastTwo;
-}
-
 function normalizeAnchorHref(rawHref) {
   return typeof rawHref === "string" ? rawHref.trim() : "";
 }
@@ -642,21 +601,55 @@ function openAuthNavigation(originalWindowOpen, url, name, specs) {
   return authWindow;
 }
 
+// Install the receiver at document start: a subframe can open a link before
+// the main page's DOMContentLoaded routing setup has run.
+let openFrameLink = null;
+const pendingFrameLinks = [];
+function isDescendantFrame(source, parent = window) {
+  for (let index = 0; index < parent.frames.length; index++) {
+    const frame = parent.frames[index];
+    if (frame === source || isDescendantFrame(source, frame)) return true;
+  }
+  return false;
+}
+function routeFrameLink(source, href) {
+  try {
+    // Recheck on delivery because the frame may have been removed meanwhile.
+    if (!isDescendantFrame(source)) return;
+    const url = new URL(href);
+    if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) return;
+    if (openFrameLink) {
+      openFrameLink.call(window, url.href, "_blank");
+    } else {
+      pendingFrameLinks.push({ source, href: url.href });
+    }
+  } catch (error) {
+    console.error("[Pake] Failed to route frame link:", error);
+  }
+}
+window.addEventListener("message", (event) => {
+  if (
+    event.data?.type !== "pake:frame-external-link" ||
+    typeof event.data.url !== "string" ||
+    !event.source ||
+    event.source === window
+  )
+    return;
+  routeFrameLink(event.source, event.data.url);
+});
+window.addEventListener("pagehide", () => {
+  pendingFrameLinks.length = 0;
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const tauri = window.__TAURI__;
   const appWindow = tauri.window.getCurrentWindow();
   const invoke = tauri.core.invoke;
   const pakeConfig = window["pakeConfig"] || {};
   const forceInternalNavigation = pakeConfig.force_internal_navigation === true;
-  const internalUrlRegex = pakeConfig.internal_url_regex || "";
-  let internalUrlPattern = null;
-  if (internalUrlRegex) {
-    try {
-      internalUrlPattern = new RegExp(internalUrlRegex);
-    } catch (e) {
-      console.error("[Pake] Invalid internal_url_regex pattern:", e);
-    }
-  }
+  const matchesInternalUrl = createInternalUrlMatcher(
+    pakeConfig.internal_url_regex,
+  );
 
   if (!document.getElementById("pake-top-dom") && hasImmersiveHeader()) {
     const topDom = document.createElement("div");
@@ -696,12 +689,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // on_download handler then writes the file to the Downloads folder. This is
   // used for blob:/data: URLs because routing their bytes through the Tauri
   // IPC fails on strict-CSP sites (e.g. Gemini), whose connect-src blocks the
-  // IPC origin. The native download path is independent of the page CSP.
+  // IPC origin. It also handles attachments when remote IPC is denied.
+  const nativeDownloadAnchors = new WeakSet();
   function triggerNativeDownload(url, filename) {
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename || "";
     anchor.style.display = "none";
+    nativeDownloadAnchors.add(anchor);
     document.body.appendChild(anchor);
     anchor.click();
     document.body.removeChild(anchor);
@@ -731,39 +726,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   };
 
-  // Check if URL belongs to the same domain (including subdomains)
-  const isSameDomain = (url) => {
-    try {
-      const linkUrl = new URL(url);
-      const currentUrl = new URL(window.location.href);
-
-      if (linkUrl.hostname === currentUrl.hostname) return true;
-
-      // e.g. www.bilibili.com and m.bilibili.com share bilibili.com;
-      // amazon.co.uk must not share a root with evil.co.uk.
-      return (
-        getRootDomain(currentUrl.hostname) === getRootDomain(linkUrl.hostname)
-      );
-    } catch (e) {
-      return false;
-    }
-  };
-
-  // Check if URL should be treated as internal based on regex pattern or domain
-  const isInternalUrl = (url) => {
-    // If regex pattern is configured, use it as the primary check
-    if (internalUrlPattern) {
-      try {
-        return internalUrlPattern.test(url);
-      } catch (e) {
-        console.error("[Pake] Error testing internal_url_regex:", e);
-        // Fall back to domain check on error
-        return isSameDomain(url);
+  function downloadFile(url, filename) {
+    return invoke("download_file", {
+      params: {
+        url,
+        filename,
+        language: getUserLanguage(),
+        user_agent: navigator.userAgent,
+        page_url: window.location.href,
+      },
+    }).catch((error) => {
+      // Debug and release builds have different ACL rejection messages.
+      // Let the browser handle attachments without granting remote IPC.
+      if (/^(?:Command )?download_file not allowed\b/.test(String(error))) {
+        triggerNativeDownload(url, filename);
+        return;
       }
-    }
-    // Default to domain-based check
-    return isSameDomain(url);
-  };
+      console.error("Failed to download file:", filename, error);
+      showDownloadError(filename);
+    });
+  }
+
+  const isInternalUrl = (url) => matchesInternalUrl(url, window.location.href);
 
   const detectAnchorElementClick = (e) => {
     // Safety check: ensure e.target exists and is an Element with closest method
@@ -771,6 +755,8 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const anchorElement = e.target.closest("a");
+
+    if (anchorElement && nativeDownloadAnchors.has(anchorElement)) return;
 
     if (anchorElement && anchorElement.href) {
       const rawHref = anchorElement.getAttribute("href") || "";
@@ -780,6 +766,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const target = anchorElement.target;
       const hrefUrl = new URL(anchorElement.href);
+      if (["mailto:", "tel:"].includes(hrefUrl.protocol)) return;
       const absoluteUrl = hrefUrl.href;
       let filename = anchorElement.download || getFilenameFromUrl(absoluteUrl);
 
@@ -864,10 +851,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         e.preventDefault();
         e.stopImmediatePropagation();
-        const userLanguage = getUserLanguage();
-        invoke("download_file", {
-          params: { url: absoluteUrl, filename, language: userLanguage },
-        });
+        downloadFile(absoluteUrl, filename);
         return;
       }
 
@@ -892,13 +876,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // Prevent some special websites from executing in advance, before the click event is triggered.
+  window.addEventListener("click", (event) =>
+    handleProtocolLinkClick(event, handleExternalLink),
+  );
+
+  // Capture web links before site popup handlers route them into the app.
   document.addEventListener("click", detectAnchorElementClick, true);
 
   // Rewrite the window.open function.
   const originalWindowOpen = window.open;
   window.open = function (url, name, specs) {
+    url = normalizePopupUrl(url);
     const normalizedUrl = normalizeAnchorHref(url);
+    // A two-stage popup needs its own WindowProxy. Returning the main window
+    // makes a later popup.location assignment navigate away from the app.
+    if (/^about:blank(?:[?#]|$)/i.test(normalizedUrl)) {
+      return originalWindowOpen.call(window, url, name, specs);
+    }
     if (normalizedUrl.startsWith("#")) {
       window.location.href = new URL(normalizedUrl, window.location.href).href;
       return window;
@@ -947,6 +941,23 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
+  // The sender is untrusted even when it belongs to this webview. This bridge
+  // may only open external links, never navigate the top page or create auth
+  // windows on a sandboxed frame's behalf.
+  openFrameLink = (url) => {
+    if (
+      forceInternalNavigation ||
+      isInternalUrl(url) ||
+      window.isAuthLink(url)
+    ) {
+      return;
+    }
+    handleExternalLink(url);
+  };
+  for (const { source, href } of pendingFrameLinks.splice(0)) {
+    routeFrameLink(source, href);
+  }
+
   // Set the default zoom, There are problems with Loop without using try-catch.
   try {
     setDefaultZoom();
@@ -954,11 +965,17 @@ document.addEventListener("DOMContentLoaded", () => {
     console.log(e);
   }
 
-  // Fix Chinese input method "Enter" on Safari
+  // Fix Chinese input method "Enter" on Safari.
+  // WebKit flags a keydown the input method consumed with keyCode 229, and the
+  // Enter that confirms a candidate arrives after compositionend. keyCode 229
+  // is needed here because isComposing can already be false on that keydown.
+  // stopPropagation, not preventDefault, so the input method can still commit.
+  // Only Enter is held back; other composing keys still reach editors.
   document.addEventListener(
     "keydown",
     (e) => {
-      if (e.key === "Process") e.stopPropagation();
+      const isImeEnter = e.key === "Enter" && e.keyCode === 229;
+      if (isImeEnter || e.key === "Process") e.stopPropagation();
     },
     true,
   );
@@ -1150,17 +1167,7 @@ document.addEventListener("DOMContentLoaded", () => {
       triggerNativeDownload(imageUrl, filename);
     } else {
       // Regular HTTP(S) image
-      const userLanguage = getUserLanguage();
-      invoke("download_file", {
-        params: {
-          url: imageUrl,
-          filename: filename,
-          language: userLanguage,
-        },
-      }).catch((error) => {
-        console.error("Failed to download image:", filename, error);
-        showDownloadError(filename);
-      });
+      downloadFile(imageUrl, filename);
     }
   }
 
@@ -1207,7 +1214,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Simplified menu builder
   function buildMenuItems(type, data) {
-    const userLanguage = getUserLanguage();
     const items = [];
 
     switch (type) {
@@ -1232,12 +1238,7 @@ document.addEventListener("DOMContentLoaded", () => {
           items.push(
             createMenuItem(menuTexts.downloadFile, () => {
               const filename = getFilenameFromUrl(data.url);
-              invoke("download_file", {
-                params: { url: data.url, filename, language: userLanguage },
-              }).catch((error) => {
-                console.error("Failed to download file:", filename, error);
-                showDownloadError(filename);
-              });
+              downloadFile(data.url, filename);
             }),
           );
         }
@@ -1312,10 +1313,25 @@ document.addEventListener("DOMContentLoaded", () => {
 (function () {
   const invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) return;
+  if (typeof EventTarget !== "function" || typeof Event !== "function") return;
+
+  let NotificationEventTarget = EventTarget;
+  try {
+    new EventTarget();
+  } catch (_) {
+    // Safari before 14 exposes EventTarget but its constructor throws. A
+    // fragment already has native event state and keeps event.target exact.
+    NotificationEventTarget = class extends EventTarget {
+      constructor() {
+        return Object.setPrototypeOf(
+          document.createDocumentFragment(),
+          new.target.prototype,
+        );
+      }
+    };
+  }
 
   let permVal = "granted";
-  let lastNotifTime = 0;
-  let lastNotif = null;
   // Pages that drive the badge directly via setAppBadge own its lifecycle;
   // notifications-driven counts auto-clear on the next user interaction.
   let pageManagedBadge = false;
@@ -1345,14 +1361,53 @@ document.addEventListener("DOMContentLoaded", () => {
     return invoke("increment_dock_badge").catch(() => {});
   };
 
+  // Notification click routing.
+  //
+  // On macOS the native center reports which notification was clicked and calls
+  // __pakeNotificationClick with its exact id (see app/notification.rs).
+  // Elsewhere the platform tells us nothing, so we approximate: a window that
+  // regains focus shortly after a notification arrived while it was in the
+  // background is treated as a click on that notification. The approximation is
+  // deliberately narrow -- one shot, time-limited, and cancelled by any in-page
+  // interaction -- because it cannot tell a notification click apart from the
+  // user switching back by hand.
+  const FOCUS_CLICK_WINDOW_MS = 60000;
+  const MAX_TRACKED_NOTIFICATIONS = 200;
+  const liveNotifications = new Map();
+  let notifSeq = 0;
+  let pendingFocusClick = null;
+  let interactionSeq = 0;
+
+  const withdrawNotification = (id) =>
+    invoke("close_notification", { id }).catch((error) => {
+      console.warn("[Pake] Failed to withdraw notification:", error);
+    });
+
+  const forgetNotification = (id) => {
+    liveNotifications.delete(id);
+    if (pendingFocusClick?.id === id) pendingFocusClick = null;
+  };
+
+  const clickNotification = (id) => {
+    const notif = liveNotifications.get(id);
+    if (!notif) return;
+    pendingFocusClick = null;
+    notif.dispatchEvent(new Event("click"));
+  };
+
   window.addEventListener("focus", () => {
-    if (lastNotif?.onclick && Date.now() - lastNotifTime < 5000) {
-      lastNotif.onclick(new Event("click"));
-      lastNotif = null;
-    }
+    interactionSeq++;
+    const pending = pendingFocusClick;
+    pendingFocusClick = null;
+    if (!pending || Date.now() - pending.at > FOCUS_CLICK_WINDOW_MS) return;
+    clickNotification(pending.id);
   });
 
   const clearAutoBadge = () => {
+    interactionSeq++;
+    // A real interaction means the user is already reading the page, so a later
+    // focus is an app switch rather than a notification click.
+    pendingFocusClick = null;
     if (pageManagedBadge || !autoBadgeActive) return;
     autoBadgeActive = false;
     clearBadge();
@@ -1360,35 +1415,140 @@ document.addEventListener("DOMContentLoaded", () => {
   document.addEventListener("click", clearAutoBadge, true);
   document.addEventListener("keydown", clearAutoBadge, true);
 
-  const wrappedNotification = function (title, options) {
-    const body = options?.body || "";
-    let icon = options?.icon || "";
-    if (icon.startsWith("/")) {
-      icon = window.location.origin + icon;
-    }
-
-    const notif = {
-      onclick: null,
-      onclose: null,
-      onshow: null,
-      onerror: null,
-      close: () => {},
-    };
-
-    lastNotifTime = Date.now();
-    lastNotif = notif;
-    invoke("send_notification", { params: { title, body, icon } })
-      .then(() => incrementAutoBadge())
-      .then(() => {
-        if (notif.onshow) notif.onshow(new Event("show"));
+  // A real EventTarget, not a bare object with an onclick slot: pages commonly
+  // register their routing with addEventListener("click"), and the click
+  // handler needs event.target to be the notification it fired for.
+  class PakeNotification extends NotificationEventTarget {
+    constructor(title, options) {
+      super();
+      const opts = options || {};
+      Object.defineProperty(this, "_handlers", {
+        value: new Map(),
+        enumerable: false,
       });
 
-    return notif;
-  };
+      this.title = title === undefined ? "" : String(title);
+      this.body = opts.body ?? "";
+      this.tag = opts.tag ?? "";
+      this.data = opts.data ?? null;
+      this.dir = opts.dir ?? "auto";
+      this.lang = opts.lang ?? "";
+      this.silent = opts.silent ?? false;
+      this.requireInteraction = opts.requireInteraction ?? false;
+      this.timestamp = opts.timestamp ?? Date.now();
 
-  wrappedNotification.requestPermission = async () => "granted";
-  Object.defineProperty(wrappedNotification, "permission", {
+      let icon = opts.icon || "";
+      if (icon.startsWith("/")) {
+        icon = window.location.origin + icon;
+      }
+      this.icon = icon;
+
+      // Must match the id charset validated in app/notification.rs.
+      const id = `pake-${++notifSeq}-${Math.random().toString(36).slice(2, 10)}`;
+      Object.defineProperty(this, "_id", { value: id, enumerable: false });
+
+      // A new notification with the same tag replaces the previous one, which
+      // must therefore stop being a click target.
+      if (this.tag) {
+        for (const other of liveNotifications.values()) {
+          if (other.tag === this.tag) other.close();
+        }
+      }
+      liveNotifications.set(id, this);
+      while (liveNotifications.size > MAX_TRACKED_NOTIFICATIONS) {
+        liveNotifications.values().next().value.close();
+      }
+
+      const raisedInBackground =
+        typeof document.hasFocus === "function" ? !document.hasFocus() : true;
+      const raisedAt = Date.now();
+      const raisedAfterInteraction = interactionSeq;
+      const sequence = notifSeq;
+      // Clear the older candidate immediately, rather than when this IPC reply
+      // arrives. Replies and native delivery may complete out of order.
+      pendingFocusClick = null;
+
+      invoke("send_notification", {
+        params: {
+          id,
+          title: this.title,
+          body: this.body,
+          icon: this.icon,
+          silent: this.silent,
+        },
+      })
+        .then((outcome) => {
+          if (liveNotifications.get(id) !== this) {
+            // close/replacement may precede native delivery. Withdraw again
+            // after its acknowledgement, using this object's unique id.
+            return withdrawNotification(id);
+          }
+          const unread = raisedAfterInteraction === interactionSeq;
+          // Another window already raised this exact message, so nothing was
+          // shown: no click can arrive, and counting it would multiply the
+          // badge by the number of windows.
+          if (outcome?.suppressed) {
+            forgetNotification(id);
+            // The dock badge is shared, and the window that raised the copy
+            // counted it. Reading here must still clear it.
+            if (unread && !pageManagedBadge) autoBadgeActive = true;
+            return undefined;
+          }
+          if (
+            unread &&
+            sequence === notifSeq &&
+            raisedInBackground &&
+            !outcome?.nativeClick
+          ) {
+            pendingFocusClick = { id, at: raisedAt };
+          }
+          this.dispatchEvent(new Event("show"));
+          if (unread) return incrementAutoBadge();
+        })
+        .catch(() => {
+          if (liveNotifications.get(id) !== this) return;
+          forgetNotification(id);
+          this.dispatchEvent(new Event("error"));
+        });
+    }
+
+    close() {
+      if (liveNotifications.get(this._id) !== this) return;
+      forgetNotification(this._id);
+      withdrawNotification(this._id);
+      // Notification events are tasks. A synchronous close handler can create
+      // another same-tag notification while the constructor is replacing it.
+      setTimeout(() => this.dispatchEvent(new Event("close")), 0);
+    }
+  }
+
+  for (const type of ["click", "close", "show", "error"]) {
+    Object.defineProperty(PakeNotification.prototype, `on${type}`, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return this._handlers.get(type) || null;
+      },
+      set(handler) {
+        const previous = this._handlers.get(type);
+        if (previous) this.removeEventListener(type, previous);
+        if (typeof handler === "function") {
+          this._handlers.set(type, handler);
+          this.addEventListener(type, handler);
+        } else {
+          this._handlers.delete(type);
+        }
+      },
+    });
+  }
+
+  PakeNotification.requestPermission = (callback) => {
+    if (typeof callback === "function") callback(permVal);
+    return Promise.resolve(permVal);
+  };
+  Object.defineProperty(PakeNotification, "permission", {
     enumerable: true,
+    configurable: true,
     get: () => permVal,
     set: (v) => {
       permVal = v;
@@ -1399,7 +1559,15 @@ document.addEventListener("DOMContentLoaded", () => {
     Object.defineProperty(window, "Notification", {
       configurable: true,
       writable: true,
-      value: wrappedNotification,
+      value: PakeNotification,
+    });
+  } catch (_) {}
+
+  try {
+    Object.defineProperty(window, "__pakeNotificationClick", {
+      configurable: true,
+      writable: true,
+      value: clickNotification,
     });
   } catch (_) {}
 

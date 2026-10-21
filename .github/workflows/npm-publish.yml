@@ -35,6 +35,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
 
       - name: Check manual publish source and quality gate
         if: github.event_name == 'workflow_dispatch'
@@ -73,7 +75,7 @@ jobs:
           fi
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: "10.26.2"
           run_install: false
@@ -109,13 +111,15 @@ jobs:
       - name: Verify published version
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          for attempt in {1..12}; do
+          # npm scans new versions before exposing them, typically for several
+          # minutes and sometimes longer than 15 minutes. Do not republish.
+          for attempt in {1..120}; do
             PUBLISHED="$(npm view "pake-cli@${VERSION}" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
             if [ "$PUBLISHED" = "$VERSION" ]; then
               echo "Published pake-cli@${VERSION}"
               exit 0
             fi
-            echo "Waiting for npm registry to expose pake-cli@${VERSION} (attempt ${attempt}/12)"
+            echo "Waiting for npm registry to expose pake-cli@${VERSION} (attempt ${attempt}/120)"
             sleep 10
           done
           echo "pake-cli@${VERSION} was not visible in npm registry after publish"

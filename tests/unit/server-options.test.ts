@@ -155,7 +155,7 @@ describe('managed local server options', () => {
 
       await fsExtra.outputJSON(configPath, { serverPort: 30141.5 });
       await expect(loadConfigFile(configPath, validKeys)).rejects.toThrow(
-        /"serverPort" must be a finite number \(1-65535\)/,
+        /"serverPort" must be an integer \(1-65535\)/,
       );
     } finally {
       await fsExtra.remove(tempDir);

@@ -1,6 +1,10 @@
 # Advanced Usage
 
-<h4 align="right"><strong>English</strong> | <a href="advanced-usage_CN.md">简体中文</a></h4>
+<div align="center">
+
+**English** · [中文](advanced-usage_CN.md)
+
+</div>
 
 Customize Pake apps with style modifications, JavaScript injection, and container communication.
 
@@ -42,25 +46,7 @@ document.addEventListener("keydown", (e) => {
 
 ### Download Error Notifications
 
-Pake automatically provides user-friendly download error notifications:
-
-**Features:**
-
-- **Bilingual Support**: Automatically detects browser language (Chinese/English)
-- **System Notifications**: Uses native OS notifications when permission is granted
-- **Graceful Fallback**: Falls back to console logging if notifications are unavailable
-- **Comprehensive Coverage**: Handles all download types (HTTP, Data URI, Blob)
-
-**User Experience:**
-
-When a download fails, users will see a notification:
-
-- English: "Download Error - Download failed: filename.pdf"
-- Chinese: "下载错误 - 下载失败: filename.pdf"
-
-**Requesting Notification Permission:**
-
-To enable notifications, add this to your injected JavaScript:
+When a download fails, Pake shows a notification in Chinese or English based on the browser language. It covers regular HTTP(S), Data URI (base64 encoded files), Blob URL (dynamically generated files) and context menu downloads, uses native OS notifications once permission is granted, and falls back to console logging otherwise. To enable notifications, request permission in your injected JavaScript:
 
 ```javascript
 // Request notification permission on app start
@@ -69,16 +55,11 @@ if (window.Notification && Notification.permission === "default") {
 }
 ```
 
-The download system automatically handles:
-
-- Regular HTTP(S) downloads
-- Data URI downloads (base64 encoded files)
-- Blob URL downloads (dynamically generated files)
-- Context menu initiated downloads
-
 ## Container Communication
 
 Send messages between web content and Pake container.
+
+Native IPC is available to bundled local pages and the exact configured website origin (scheme, host, and port). Login redirects and other origins do not receive native permissions. Use the final website URL when packaging an app, including its `www` or workspace subdomain. On other origins, native notifications, zoom, Pake's fullscreen controls, dragging the window by its hidden title bar, and opening links in the system browser are unavailable; downloads fall back to the browser, which may display cross-origin media instead of saving it. Custom commands must be registered in both `generate_handler!` and the command manifest in `src-tauri/build.rs`, with the corresponding permission added to `src-tauri/capabilities/default.json`.
 
 **Web Side (JavaScript):**
 
@@ -116,7 +97,7 @@ Configure window properties in `pake.json`:
 }
 ```
 
-`hide_title_bar` is the `pake.json` key (the CLI exposes it as `--hide-title-bar`). It is only supported on macOS and is ignored on Windows and Linux. Use `hide_window_decorations` (`--hide-window-decorations`) for frameless windows on Windows and Linux.
+`hide_title_bar` is the `pake.json` key (the CLI exposes it as `--hide-title-bar`). It is macOS only and ignored on Windows and Linux, which use `hide_window_decorations` (`--hide-window-decorations`) for frameless windows instead.
 
 ## Static File Packaging
 
@@ -145,62 +126,52 @@ pake https://meet.google.com --name GoogleMeet --camera --microphone
 - `--microphone`: grants microphone access (`com.apple.security.device.audio-input`)
 - `--camera`: grants camera access (`com.apple.security.device.camera`)
 
-macOS will prompt the user for permission on first use. Only add these flags for sites that actually need them.
+macOS prompts the user for permission on first use, so add these flags only for sites that need them.
 
 ## Multiple Apps For The Same Site
 
-If you need separate apps for the same site, for example two Gmail accounts with different login state, build them with different app names:
+If you need separate apps for the same site, for example two GitHub accounts with different login state, build them with different app names:
 
 ```bash
-pake https://gmail.com --name "Gmail Work"
-pake https://gmail.com --name "Gmail Personal"
+pake https://github.com --name "GitHub Work"
+pake https://github.com --name "GitHub Personal"
 ```
 
-Pake now generates a different app identifier for each `URL + name` pair, so these apps can be installed as separate desktop apps instead of resolving to the same app.
-
-For advanced cases, Pake also supports a hidden `--identifier` option if you need to pin the bundle identifier explicitly:
+Pake generates a different app identifier for each `URL + name` pair, so these apps install as separate desktop apps instead of resolving to the same app. To pin the bundle identifier explicitly, use the hidden `--identifier` option:
 
 ```bash
-pake https://gmail.com --name "Gmail Work" --identifier com.example.gmail.work
+pake https://github.com --name "GitHub Work" --identifier com.example.github.work
 ```
 
 `--multi-instance` is different. It only allows multiple processes for the same packaged app, it does not create separate app identities.
 
 ## Project Structure
 
-Understanding Pake's codebase structure will help you navigate and contribute effectively:
-
 ```tree
 ├── bin/                    # CLI source code (TypeScript)
-│   ├── builders/          # Platform-specific builders
-│   ├── helpers/           # Utility functions
-│   └── options/           # CLI option processing
+│   ├── builders/          # Platform-specific packaging builders
+│   ├── helpers/           # Helper utilities and config merging
+│   ├── options/           # CLI option processing
+│   └── utils/             # Dependency detection, workspace, and environment
 ├── docs/                  # Project documentation
-├── src-tauri/             # Tauri application core
+├── src-tauri/             # Tauri application core (Rust)
 │   ├── src/
-│   │   ├── app/           # Core modules (window, tray, shortcuts)
-│   │   ├── inject/        # Web page injection logic
+│   │   ├── app/           # Core modules (window, menu, shortcuts, etc.)
+│   │   ├── inject/        # Injected scripts (CSS, JS, event listeners)
 │   │   └── lib.rs         # Application entry point
 │   ├── icons/             # macOS icons (.icns)
 │   ├── png/               # Windows/Linux icons (.ico, .png)
-│   ├── pake.json          # App configuration
+│   ├── pake.json          # Runtime configuration template
 │   └── tauri.*.conf.json  # Platform-specific configs
 ├── scripts/               # Build and utility scripts
 └── tests/                 # Test suites
 ```
 
-### Key Components
-
-- **CLI Tool** (`bin/`): TypeScript-based command interface for packaging apps
-- **Tauri App** (`src-tauri/`): Rust-based desktop framework
-- **Injection System** (`src-tauri/src/inject/`): Custom CSS/JS injection for webpages
-- **Configuration**: Multi-platform app settings and build configurations
-
 ## Development Workflow
 
 ### Prerequisites
 
-- Node.js ≥22.0.0 (recommended LTS, older versions ≥20.0.0 may work)
+- Node.js ≥22 (recommended LTS, minimum ≥20.9.0)
 - Rust ≥1.85.0 (recommended stable)
 
 #### Platform-Specific Requirements
@@ -220,7 +191,7 @@ Understanding Pake's codebase structure will help you navigate and contribute ef
   4. Microsoft Visual C++ 2013 Redistributable (x86) (optional)
   5. Microsoft Visual C++ 2008 Redistributable (x86) (optional)
 
-- **Windows ARM (ARM64) support**: Install C++ ARM64 build tools in Visual Studio Installer under "Individual Components" → "MSVC v143 - VS 2022 C++ ARM64 build tools"
+- **Windows ARM (ARM64) support**: In Visual Studio Installer, under Individual Components, select MSVC v143 - VS 2022 C++ ARM64 build tools
 
 **Linux (Ubuntu):**
 
@@ -280,11 +251,9 @@ For CLI development with hot reloading, run:
 pnpm run cli:dev
 ```
 
-This script reads the configuration and packages the specified app in watch mode, with hot updates for `pake-cli` code changes.
+This script builds the CLI in watch mode, runs it with the arguments you pass, then starts `tauri dev` for that app, with hot updates for `pake-cli` code changes.
 
 ### Testing Guide
-
-Comprehensive CLI build and release validation guidance for multi-platform packaging.
 
 #### Running Tests
 
@@ -305,19 +274,9 @@ pnpm run cli:build
 node ./tests/release.js
 ```
 
-#### 🚀 Complete Test Suite Includes
-
-- ✅ **Vitest suite**: unit, integration, builder, and CLI option coverage
-- ✅ **Real build smoke test**: platform-aware packaging validation
-- ✅ **Release workflow smoke test**: verifies the release build path used for popular apps
-
 #### Test Details
 
-- `pnpm test` runs the main CLI test runner in [`tests/index.js`](../tests/index.js), which:
-- builds the CLI,
-- runs the Vitest suite,
-- runs the real build smoke test unless `--no-build` is passed,
-- and then runs the release workflow smoke test when the real build phase succeeds.
+`pnpm test` runs the main test runner in [`tests/index.js`](../tests/index.js). It builds the CLI, runs the Vitest suite (unit, integration, builder and CLI option coverage), runs the platform-aware real build smoke test unless `--no-build` is passed, and then, if the real build succeeds, runs the release workflow smoke test that covers the popular apps build path.
 
 Useful optional flags:
 
@@ -327,8 +286,6 @@ Useful optional flags:
 - `--no-build`: skip the real build smoke test and the follow-up release workflow smoke test
 - `--e2e`: add end-to-end configuration tests
 - `--pake-cli`: add GitHub Actions related checks
-
-If you only want the release workflow smoke test, run `node ./tests/release.js` directly.
 
 #### Troubleshooting
 

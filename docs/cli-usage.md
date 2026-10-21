@@ -1,12 +1,14 @@
 # CLI Usage Guide
 
-<h4 align="right"><strong>English</strong> | <a href="cli-usage_CN.md">简体中文</a></h4>
+<div align="center">
+
+**English** · [中文](cli-usage_CN.md)
+
+</div>
 
 Complete command-line reference and basic usage for Pake CLI.
 
 ## Installation
-
-Ensure that your Node.js version is 22.0 or higher (e.g., 22.11.0). _Note: Older versions ≥20.0.0 may also work._
 
 **Recommended (pnpm):**
 
@@ -34,22 +36,21 @@ source ~/.bashrc
 
 **Prerequisites:**
 
-- Node.js ≥20.0.0
-- Rust ≥1.85.0 (installed automatically if missing)
+- Node.js ≥20.9.0
+- Rust ≥1.85.0 (prompts to install if missing; non-interactive and `--json` runs fail with `ENV_MISSING` instead)
 - **macOS/Linux**: `curl`, `wget`, `file` and `tar` used for dependency management
 
 ## Quick Start
 
 ```bash
-# Basic usage - automatically fetches website icon
+# Basic usage, fetches the website icon automatically
 pake https://github.com --name "GitHub"
 
-# Advanced usage with custom options
+# Advanced usage, custom options
 pake https://weekly.tw93.fun --name "Weekly" --icon https://cdn.tw93.fun/pake/weekly.icns --width 1200 --height 800 --hide-title-bar
 
-# Complete example with multiple options
+# Complete example, multiple options combined
 pake https://github.com --name "GitHub Desktop" --width 1400 --height 900 --show-system-tray --debug
-
 ```
 
 ## CLI Usage
@@ -58,15 +59,17 @@ pake https://github.com --name "GitHub Desktop" --width 1400 --height 900 --show
 pake [url] [options]
 ```
 
-The packaged application will be located in the current working directory by default. The first packaging might take some time due to environment configuration. Please be patient.
+The packaged application will be located in the current working directory by default. The first build sets up the environment and takes longer, later builds are fast.
 
 > **macOS Output**: On macOS, Pake creates DMG installers by default. To create `.app` bundles for testing (to avoid user interaction), set the environment variable `PAKE_CREATE_APP=1`. If you want Pake to install the app directly into `/Applications`, use `--install`, which builds an `.app`, copies it into `/Applications`, and removes the local bundle after a successful install.
 >
-> **Note**: Packaging requires the Rust environment. If Rust is not installed, you will be prompted for installation confirmation. In case of installation failure or timeout, you can [install it manually](https://www.rust-lang.org/tools/install).
+> **Rust**: Packaging requires Rust. If it is missing, you will be asked whether to install it, and if installation fails or times out, you can [install it manually](https://www.rust-lang.org/tools/install).
 
 ### [url]
 
 The URL is the link to the web page you want to package, the path to a local HTML file, or the path to a directory of static web files containing an `index.html` at its root (e.g. a `dist/` build output). Mandatory unless a `--config` file provides `url`.
+
+Web apps remember the main window’s full URL when closed or quit and reopen it on the next launch. The packaged URL remains the home address and is used when no saved URL is available. Incognito apps and local HTML apps do not save or restore URLs.
 
 ```shell
 pake https://example.com --name Example
@@ -78,7 +81,7 @@ For local packaging, hash-based routing works out of the box; history-mode SPA r
 
 ### [options]
 
-Various options are available for customization. `pake --help` shows every supported CLI option. This page is the complete reference.
+The table lists the common options, `pake --help` shows every option, and each one is documented in full below.
 
 | Option                      | Description                                         | Example                                        |
 | --------------------------- | --------------------------------------------------- | ---------------------------------------------- |
@@ -94,13 +97,9 @@ Various options are available for customization. `pake --help` shows every suppo
 | `--help`                    | Show all CLI options                                | `--help`                                       |
 | `--version`                 | Show CLI version                                    | `--version`                                    |
 
-For complete options, see detailed sections below.
-
 #### [name]
 
-Specify the application name. If not provided, you will be prompted to enter it. It is recommended to use English.
-
-**Note**: Also supports multiple words with automatic platform-specific handling:
+Specify the application name. If not provided, you will be prompted to enter it. English names work best, and names with spaces are handled per platform:
 
 - **Windows/macOS**: Preserves spaces and case (e.g., `"Google Translate"`)
 - **Linux**: Converts to lowercase with hyphens (e.g., `"google-translate"`)
@@ -111,6 +110,14 @@ Specify the application name. If not provided, you will be prompted to enter it.
 
 # Multiple words (if needed):
 --name "Google Translate"
+```
+
+#### [identifier]
+
+Set the bundle identifier explicitly. By default Pake derives `com.pake.a<hash>` from the URL and `--name`, so two apps wrapping the same URL under different names install separately. The value must start with a letter, contain only letters, digits, hyphens and dots, and end with a letter or digit.
+
+```shell
+--identifier com.example.github.work
 ```
 
 #### [icon]
@@ -135,20 +142,20 @@ pake https://github.com --name GitHub
 --icon https://cdn.tw93.fun/pake/weekly.icns  # Remote icon (.icns for macOS)
 ```
 
-#### [height]
-
-Set the height of the application window. Default is `780px`.
-
-```shell
---height <number>
-```
-
 #### [width]
 
 Set the width of the application window. Default is `1200px`.
 
 ```shell
 --width <number>
+```
+
+#### [height]
+
+Set the height of the application window. Default is `780px`.
+
+```shell
+--height <number>
 ```
 
 #### [min-width]
@@ -195,8 +202,7 @@ Hide the native window decorations on Windows and Linux. Default is `false`. Thi
 
 #### [fullscreen]
 
-Determine whether the application launches in full screen. Default is `false`. Use the following command to enable full
-screen.
+Determine whether the application launches in full screen. Default is `false`. Use the following command to enable full screen.
 
 ```shell
 --fullscreen
@@ -204,8 +210,7 @@ screen.
 
 #### [maximize]
 
-Determine whether the application launches with a maximized window. Default is `false`. Use the following command to enable
-maximize.
+Determine whether the application launches with a maximized window. Default is `false`. Use the following command to enable maximize.
 
 ```shell
 --maximize
@@ -213,7 +218,7 @@ maximize.
 
 #### [activation-shortcut]
 
-Set the activation shortcut for the application. Default is empty, so it does not take effect. You can customize the activation shortcut with the following commands, e.g. `CmdOrControl+Shift+P`. Usage can refer to [available-modifiers](https://www.electronjs.org/docs/latest/api/accelerator#available-modifiers).
+Set the activation shortcut for the application. Default is empty, so it does not take effect. Write it as modifiers and one key joined by `+`, e.g. `CmdOrControl+Shift+P`. Modifiers are `CmdOrControl` (Cmd on macOS, Ctrl elsewhere), `Cmd` or `Super`, `Ctrl`, `Alt` or `Option`, and `Shift`; the key is a letter, a digit, `F1` to `F24`, or a name such as `Space`, `Enter`, `Escape` or `Up`.
 
 ```shell
 --activation-shortcut <string>
@@ -302,7 +307,7 @@ Package the application to support both Intel and M1 chips, exclusively for macO
 
 ##### Prerequisites
 
-- Note: After enabling this option, Rust must be installed using rustup from the official Rust website. Installation via brew is not supported.
+- After enabling this option, Rust must be installed using rustup from the official Rust website. Installation via brew is not supported.
 - For Intel chip users, install the arm64 cross-platform package to support M1 chips using the following command:
 
   ```shell
@@ -356,6 +361,24 @@ Specify the build target architecture or format:
 - ARM64 support enables Pake apps to run on ARM-based Linux devices, including Linux phones (postmarketOS, Ubuntu Touch), Raspberry Pi, and other ARM64 Linux systems.
 - Use `--target appimage-arm64` for portable ARM64 applications that work across different ARM64 Linux distributions.
 - Use `--targets zst` on Arch Linux based distributions to produce a `.pkg.tar.zst` package directly. Pake follows Tauri's AUR packaging guidance by building the Linux package payload first, then emitting Arch package metadata and zstd-compressed output. Requires `binutils` (for `ar`) and `libarchive` (for `bsdtar`).
+
+#### [windows-toolchain]
+
+Select the Rust toolchain used for Windows builds. Windows only; ignored on other platforms.
+
+- `msvc` (default): Tauri's recommended toolchain. Requires [Visual Studio Build Tools](https://tauri.app/start/prerequisites/#windows) with the "Desktop development with C++" workload.
+- `gnu`: builds against a MinGW/MSYS2 toolchain instead, for machines that have Rust and a GNU toolchain (e.g. via [MSYS2](https://www.msys2.org/)) but not Visual Studio Build Tools. Only `x64` is supported (MSYS2 does not ship an ARM64 GCC toolchain for this target). Requires `gcc`, `ld` and `dlltool` on `PATH`.
+
+```shell
+--windows-toolchain <msvc|gnu>
+
+# Example: build with MinGW/MSYS2 instead of MSVC
+--windows-toolchain gnu
+```
+
+If no MSVC Build Tools are detected and a GNU toolchain is available, Pake logs a hint to retry with `--windows-toolchain gnu` rather than failing deep in the build with an unexplained linker error. Requesting `gnu` does not change your default Rust toolchain or any global `rustup`/environment settings; it only affects the current build subprocess.
+
+With `gnu`, the executable loads `WebView2Loader.dll` at runtime instead of linking it statically as MSVC does. The MSI already includes it, and `--keep-binary` copies it next to `AppName.exe`; keep the two files together or the raw binary will not start.
 
 #### [no-bundle]
 
@@ -415,7 +438,7 @@ Start the application minimized to system tray instead of showing the window. Mu
 pake https://github.com --name GitHub --show-system-tray --start-to-tray
 ```
 
-**Note**: Double-click the tray icon to show/hide the window. If used without `--show-system-tray`, this option is ignored.
+Bring the window back or hide it again with Show and Hide in the tray menu. On Windows, a left click on the tray icon also shows or hides it. Without `--show-system-tray`, this option is ignored.
 
 #### [title]
 
@@ -429,12 +452,28 @@ Set the window title bar text. macOS shows no title if not specified; Windows/Li
 --title "Google Translate"
 ```
 
+#### [no-restore-last-url]
+
+Web apps restore the main window's last URL by default. Use this option to open the packaged URL on every launch while keeping cookies, local storage, and login sessions. In a `--config` JSON file, set `"restoreLastUrl": false`. Incognito sessions and local pages do not restore URLs.
+
+```shell
+pake https://www.rememberthemilk.com --name RememberTheMilk --no-restore-last-url
+```
+
 #### [incognito]
 
 Launch the application in incognito/private browsing mode. Default is `false`. When enabled, the webview will run in private mode, which means it won't store cookies, local storage, or browsing history. This is useful for privacy-sensitive applications.
 
 ```shell
 --incognito
+```
+
+#### [password-autosave]
+
+Enable native WebView2 password-save prompts on Windows. Passwords are stored in the packaged app's own WebView2 profile and are not shared with Chrome or Edge. This option is ignored on macOS and Linux, and is disabled when `--incognito` is enabled. Default is `false`. Disabling it stops new saves and save/update prompts; existing saved passwords may still autofill, including in an InPrivate window using the same profile.
+
+```bash
+--password-autosave
 ```
 
 #### [wasm]
@@ -472,11 +511,11 @@ Keep the raw binary file alongside the installer. Default is `false`. When enabl
 pake https://github.com --name GitHub --keep-binary
 ```
 
-**Output**: Creates both installer and standalone executable (`AppName-binary` on Unix, `AppName.exe` on Windows).
+**Output**: Creates both installer and standalone executable (`AppName-binary` on Unix, `AppName.exe` on Windows). With `--windows-toolchain gnu`, `WebView2Loader.dll` is copied next to `AppName.exe` as well.
 
 #### [iterative-build]
 
-Turn on rapid build mode (app only, no dmg/deb/msi), good for debugging. Default is `false`.
+macOS only: build the `.app` and skip DMG packaging, good for debugging. Default is `false`.
 
 ```shell
 --iterative-build
@@ -588,6 +627,16 @@ Supports both comma-separated and multiple option formats:
 --inject ./tools/style.css
 ```
 
+#### [download-dir]
+
+Choose where the packaged app saves downloads. Both regular link downloads and native browser downloads use this directory; the default is the system Downloads folder.
+
+```bash
+pake https://example.com --name MyApp --download-dir '~/Documents/MyApp'
+```
+
+Use an absolute path (such as `C:\Users\Alice\Documents\MyApp` on Windows) or a quoted `~/path`. Quoting preserves `~` so it resolves to the app user's home when the app runs, rather than the build machine's home. Missing directories are created on the first download. Relative paths are rejected; an inaccessible directory causes the download to fail without silently saving elsewhere. The equivalent JSON config field is `downloadDir`. Rebuild an existing app to change its download directory.
+
 #### [proxy-url]
 
 Set proxy server for all network requests. Supports HTTP, HTTPS, and SOCKS5. Available on Windows and Linux. On macOS, requires macOS 14+.
@@ -668,10 +717,6 @@ This can help sites that rely on popup auth windows, but it does not guarantee i
 ```shell
 --new-window
 ```
-
-### Packaging Complete
-
-After completing the above steps, your application should be successfully packaged. Please note that the packaging process may take some time depending on your system configuration and network conditions. Be patient, and once the packaging is complete, you can find the application installer in the specified directory.
 
 ## Docker
 

@@ -34,10 +34,14 @@ function loadEventHelpers({
   hideTitleBar = false,
   hideWindowDecorations = false,
 } = {}) {
-  const source = fs.readFileSync(
-    path.join(process.cwd(), "src-tauri/src/inject/event.js"),
-    "utf-8",
-  );
+  const source = ["link_policy.js", "event.js"]
+    .map((file) =>
+      fs.readFileSync(
+        path.join(process.cwd(), "src-tauri/src/inject", file),
+        "utf-8",
+      ),
+    )
+    .join("\n");
 
   const eventListeners = {};
   const elementsById = new Map();
@@ -61,7 +65,8 @@ function loadEventHelpers({
   const context = {
     console,
     URL,
-    Event: class {},
+    Event,
+    EventTarget,
     Notification: function Notification() {},
     setTimeout,
     clearTimeout,
@@ -188,6 +193,16 @@ function createKeyEvent(key, overrides = {}) {
 }
 
 describe("event fullscreen shortcuts", () => {
+  it("preserves WebView2 native fullscreen and keeps the other platform polyfill", () => {
+    const source = fs.readFileSync("src-tauri/src/app/window.rs", "utf8");
+    const injection =
+      /#\[cfg\(not\(target_os = "windows"\)\)\]\s*\{\s*window_builder =\s*window_builder\.initialization_script\(include_str!\("\.\.\/inject\/fullscreen\.js"\)\);\s*\}/;
+    expect(source).toMatch(injection);
+    expect(
+      source.match(/include_str!\("\.\.\/inject\/fullscreen\.js"\)/g),
+    ).toHaveLength(1);
+  });
+
   it("leaves macOS reload shortcuts to the native menu", () => {
     const context = loadEventHelpers({
       userAgent:
@@ -249,6 +264,17 @@ describe("event fullscreen shortcuts", () => {
 
     await Promise.resolve();
     expect(context.fullscreenCalls).toEqual([false]);
+  });
+
+  it("exits DOM fullscreen before leaving a fullscreen video on F11", async () => {
+    const context = loadEventHelpers({ initialFullscreen: true });
+    context.document.fullscreenElement = context.document.body;
+    context.document.exitFullscreen = vi.fn().mockResolvedValue(undefined);
+    getFullscreenShortcutHandler(context)(createKeyEvent("F11"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(context.document.exitFullscreen).toHaveBeenCalledOnce();
+    expect(context.fullscreenCalls).toEqual([]);
   });
 
   it("toggles native fullscreen on F11 for Linux", async () => {

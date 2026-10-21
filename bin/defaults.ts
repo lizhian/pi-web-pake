@@ -35,6 +35,7 @@ export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
   useLocalFile: false,
   systemTrayIcon: '',
   proxyUrl: '',
+  downloadDir: '',
   basicAuth: false,
   debug: false,
   json: false,
@@ -42,6 +43,8 @@ export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
   installerLanguage: 'en-US',
   hideOnClose: undefined, // Platform-specific: true for macOS, false for others
   incognito: false,
+  restoreLastUrl: true,
+  passwordAutosave: false,
   wasm: false,
   enableDragDrop: false,
   bundle: true,

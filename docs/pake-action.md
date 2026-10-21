@@ -1,8 +1,12 @@
 # Pake Action
 
-Transform any webpage into a lightweight desktop app with a single GitHub Actions step.
+<div align="center">
 
-> This guide shows how to use Pake as a GitHub Action in your own projects. For using our project's built-in GitHub Actions workflow, see [GitHub Actions Usage](github-actions-usage.md).
+**English** · [中文](pake-action_CN.md)
+
+</div>
+
+Call Pake from your own GitHub Actions workflow to turn any webpage into a lightweight desktop app in a single step. To build online without writing a workflow, see [GitHub Actions Usage](github-actions-usage.md).
 
 ## Quick Start
 
@@ -88,11 +92,11 @@ jobs:
 
 ## Supported Platforms
 
-- **Linux**: `.deb` packages (Ubuntu runners)
-- **macOS**: `.app` and `.dmg` packages (macOS runners)
-- **Windows**: `.exe` and `.msi` packages (Windows runners)
+- **Linux**: `.deb` package, or `.rpm` / `.AppImage` when that is the one that built (Ubuntu runners)
+- **macOS**: `.app` bundle (macOS runners)
+- **Windows**: `.msi` installer (Windows runners)
 
-Use GitHub's matrix strategy to build for multiple platforms simultaneously.
+Each run moves the one package the CLI wrote during that run into the output directory and reports it as `package-path`; when two packages of the same format turn up, the step fails instead of guessing. Use GitHub's matrix strategy to build for multiple platforms simultaneously.
 
 ## Related Documentation
 

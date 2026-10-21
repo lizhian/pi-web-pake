@@ -1,21 +1,28 @@
-# Pake 文档
+# Pake CLI 文档
 
-<h4 align="right"><a href="README.md">English</a> | <strong>简体中文</strong></h4>
+<div align="center">
 
-欢迎使用 Pake 文档！在这里您可以找到全面的指南和文档，帮助您快速开始使用 Pake。
+[English](README.md) · **中文**
+
+</div>
+
+Pake 应用打包与开发的参考指南。
 
 ## 使用指南
 
-- **[CLI命令参考](cli-usage_CN.md)** - 完整的命令行参数说明和基础用法
-- **[GitHub Actions在线构建](github-actions-usage_CN.md)** - 无需本地环境的在线构建方式
-- **[Pake Action集成](pake-action.md)** - 在你的项目中使用 Pake 作为 GitHub Action
+- **[快速上手](getting-started_CN.md)**：一步步打包出第一个应用
+- **[CLI 命令参考](cli-usage_CN.md)**：完整命令行参数说明与基础用法
+- **[GitHub Actions 在线构建](github-actions-usage_CN.md)**：无需本地环境的在线构建方式
+- **[Pake Action 集成](pake-action_CN.md)**：在 CI 工作流中使用 Pake 进行自动化打包
+- **[脚本与 AI 智能体](ai-agents_CN.md)**：JSON 输出、配置文件和官方 skill
+- **[快捷键](shortcuts_CN.md)**：Pake 打包的应用里都能用的快捷键
 
 ## 开发指南
 
-- **[高级用法与开发](advanced-usage_CN.md)** - 代码自定义、项目结构、开发环境配置和测试指南
-- **[贡献指南](../CONTRIBUTING.md)** - 如何为 Pake 开发做贡献
+- **[高级用法与开发](advanced-usage_CN.md)**：代码自定义、项目结构、开发环境配置与测试指南
+- **[参与贡献](contributing_CN.md)**：提交 PR、推荐精选网站和商标政策
 
-## 快捷链接
+## 相关资源
 
 - [主仓库](https://github.com/tw93/Pake)
 - [发布页面](https://github.com/tw93/Pake/releases)

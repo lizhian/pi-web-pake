@@ -76,6 +76,11 @@ export interface PakeCliOptions extends ManagedLocalAppCliOptions {
   // Linux: "deb", "appimage", "rpm", "zst" and "*-arm64" variants; Windows: "x64", "arm64"; macOS: "intel", "apple", "universal"
   targets: string;
 
+  // Windows Rust toolchain: 'msvc' (default, Tauri's recommended toolchain)
+  // or 'gnu' (MinGW/MSYS2, for machines without Visual Studio Build Tools).
+  // Undefined keeps today's msvc-only behavior. Windows only; ignored elsewhere.
+  windowsToolchain?: 'msvc' | 'gnu';
+
   // Debug mode, outputs more logs
   debug: boolean;
 
@@ -87,6 +92,9 @@ export interface PakeCliOptions extends ManagedLocalAppCliOptions {
 
   /** External scripts that need to be injected into the page. */
   inject: string[];
+
+  // Download directory in the packaged app; empty uses the system default.
+  downloadDir: string;
 
   // Set Api Proxy
   proxyUrl: string;
@@ -102,6 +110,12 @@ export interface PakeCliOptions extends ManagedLocalAppCliOptions {
 
   // Launch app in incognito/private mode, default false
   incognito: boolean;
+
+  // Restore the last main-window URL on launch, default true
+  restoreLastUrl: boolean;
+
+  // Enable native WebView2 password-save prompts on Windows, default false
+  passwordAutosave: boolean;
 
   // Enable WebAssembly support (Flutter Web, etc.), default false
   wasm: boolean;
@@ -192,6 +206,8 @@ export interface WindowConfig extends ManagedWindowConfig {
   activation_shortcut: string;
   hide_on_close: boolean;
   incognito: boolean;
+  restore_last_url: boolean;
+  password_autosave: boolean;
   title?: string;
   enable_wasm: boolean;
   enable_drag_drop: boolean;
@@ -212,6 +228,7 @@ export interface PakeConfig extends ManagedPakeConfig {
   system_tray: PlatformSpecific<boolean>;
   system_tray_path: string;
   proxy_url: string;
+  download_dir: string;
   basic_auth: boolean;
   multi_instance: boolean;
   multi_window: boolean;
@@ -229,8 +246,8 @@ export interface PakeTauriConfig {
     resources?: string[];
     targets?: string[];
     linux?: {
-      deb: { files?: Record<string, string> };
-      rpm?: { files?: Record<string, string> };
+      deb: { files?: Record<string, string>; desktopTemplate?: string };
+      rpm?: { files?: Record<string, string>; desktopTemplate?: string };
       [key: string]: unknown;
     };
     windows?: {

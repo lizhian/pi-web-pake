@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
+import http from 'http';
 
 const execaMock = vi.hoisted(() => vi.fn());
 
@@ -15,6 +16,30 @@ import { getIconSourcePriority } from '@/utils/icon-source';
 
 const downloadedIconPaths: string[] = [];
 const generatedIconDirs: string[] = [];
+
+it('keeps the download deadline active until the response body completes', async () => {
+  let bodyCompleted = false;
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'image/png' });
+    response.flushHeaders();
+    const timer = setTimeout(() => {
+      bodyCompleted = true;
+      response.end('x');
+    }, 500);
+    response.on('close', () => clearTimeout(timer));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as import('net').AddressInfo).port;
+    expect(
+      await downloadIcon(`http://127.0.0.1:${port}/icon`, false, 50),
+    ).toBeNull();
+    expect(bodyCompleted).toBe(false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

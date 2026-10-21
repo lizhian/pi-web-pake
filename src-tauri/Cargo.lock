@@ -2566,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "pake"
-version = "3.15.7"
+version = "3.17.6"
 dependencies = [
  "block2",
  "dispatch",
@@ -2591,7 +2591,9 @@ dependencies = [
  "tokio",
  "webkit2gtk",
  "webview2-com",
+ "windows-core 0.61.2",
  "windows-sys 0.61.2",
+ "zbus",
 ]
 
 [[package]]

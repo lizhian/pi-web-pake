@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import appRootPath from "app-root-path";
+import { fileURLToPath } from "node:url";
 import typescript from "rollup-plugin-typescript2";
 import alias from "@rollup/plugin-alias";
 import commonjs from "@rollup/plugin-commonjs";
@@ -18,6 +18,7 @@ if (process.platform === "darwin") {
 }
 
 const isProduction = process.env.NODE_ENV === "production";
+const projectDirectory = path.dirname(fileURLToPath(import.meta.url));
 const devPlugins = !isProduction ? [pakeCliDevPlugin()] : [];
 
 export default {
@@ -65,7 +66,7 @@ export default {
       preventAssignment: true,
     }),
     alias({
-      entries: [{ find: "@", replacement: path.join(appRootPath.path, "bin") }],
+      entries: [{ find: "@", replacement: path.join(projectDirectory, "bin") }],
     }),
     ...devPlugins,
   ],

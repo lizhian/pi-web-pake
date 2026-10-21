@@ -11,6 +11,7 @@
 - Predictable CLI failures throw `PakeError` with `{code, hint}` (`bin/utils/error.ts`); the code maps to a stable exit code and the `--json` error object. Plain `Error` gets classified by build phase in `bin/cli.ts`.
 - In machine mode (`--json`) stdout is reserved for the single JSON result. Never `console.log` / `process.stdout.write` in `bin/`; subprocess stdout is rerouted to stderr by `shellExec`.
 - `shellExec` runs subprocesses with `stdio: 'inherit'`, so their output (linuxdeploy, cargo, npm) never reaches `error.message`; only the failed command line does. Do NOT classify a build failure by grepping `error.message`; you would be matching the command, not the diagnostics. Drive failure guidance off a structured fact the caller holds (e.g. `target === 'appimage'`). Owners: `bin/utils/shell.ts` + `bin/builders/BaseBuilder.ts`.
+- Pass executable, argument array, and working directory separately to `shellExec`; quoted shell strings still interpret command substitutions in paths. Platform builders derive version/language from current options and merge cloned templates, never mutable module-level config. Keep shared dependency directories read-only during workspace builds.
 
 ### Config types
 

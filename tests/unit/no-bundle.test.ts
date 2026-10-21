@@ -16,13 +16,13 @@ const makeBuilder = (bundle: boolean) =>
 
 describe('LinuxBuilder --no-bundle', () => {
   it('appends --no-bundle and skips --bundles when bundle is false', () => {
-    const cmd = (makeBuilder(false) as any).getBuildCommand('pnpm');
+    const cmd = (makeBuilder(false) as any).getBuildCommand('pnpm').args;
     expect(cmd).toContain('--no-bundle');
     expect(cmd).not.toContain('--bundles');
   });
 
   it('does not append --no-bundle when bundle is true (default)', () => {
-    const cmd = (makeBuilder(true) as any).getBuildCommand('pnpm');
+    const cmd = (makeBuilder(true) as any).getBuildCommand('pnpm').args;
     expect(cmd).not.toContain('--no-bundle');
   });
 });

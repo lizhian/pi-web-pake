@@ -7,15 +7,23 @@ function loadEventHelpers({
   withTauri = false,
   userAgent = "Mozilla/5.0",
   initialZoom = null,
+  downloadError = null,
 } = {}) {
-  const source = fs.readFileSync(
-    path.join(process.cwd(), "src-tauri/src/inject/event.js"),
-    "utf-8",
-  );
+  const source = ["link_policy.js", "event.js"]
+    .map((file) =>
+      fs.readFileSync(
+        path.join(process.cwd(), "src-tauri/src/inject", file),
+        "utf-8",
+      ),
+    )
+    .join("\n");
 
   const invokeCalls = [];
+  const nativeDownloadClicks = [];
   const invoke = (command, payload) => {
     invokeCalls.push([command, payload]);
+    if (command === "download_file" && downloadError)
+      return Promise.reject(downloadError);
     return Promise.resolve();
   };
   const eventListeners = {};
@@ -41,7 +49,17 @@ function loadEventHelpers({
       this.children = this.children.filter((item) => item !== child);
       if (child.id) elementsById.delete(child.id);
     },
-    click: () => {},
+    click() {
+      nativeDownloadClicks.push([this.href, this.download]);
+      // A transient native-download anchor still passes through document capture.
+      getClickGuard({ eventListeners })(makeClickEvent(this));
+    },
+    closest() {
+      return this;
+    },
+    getAttribute(name) {
+      return name === "href" ? this.href : "";
+    },
     set id(value) {
       this._id = value;
       elementsById.set(value, this);
@@ -56,7 +74,8 @@ function loadEventHelpers({
   const context = {
     console,
     URL,
-    Event: class {},
+    Event,
+    EventTarget,
     Notification: function Notification() {},
     setTimeout,
     clearTimeout,
@@ -66,6 +85,7 @@ function loadEventHelpers({
       language: "en-US",
     },
     window: {
+      frames: [],
       history: {
         back: () => {},
         forward: () => {},
@@ -113,7 +133,13 @@ function loadEventHelpers({
   }
 
   runInNewContext(source, context);
-  return { ...context, eventListeners, invokeCalls, localStorageValues };
+  return {
+    ...context,
+    eventListeners,
+    invokeCalls,
+    localStorageValues,
+    nativeDownloadClicks,
+  };
 }
 
 function runDomReady(context) {
@@ -146,6 +172,205 @@ function makeClickEvent(anchor) {
 }
 
 describe("event link guard", () => {
+  it.each([
+    'download_file not allowed on window "pake", webview "pake", URL: https://other.example/',
+    "Command download_file not allowed by ACL",
+  ])(
+    "falls back once to browser downloads on ACL denial: %s",
+    async (downloadError) => {
+      const context = loadEventHelpers({ withTauri: true, downloadError });
+      runDomReady(context);
+      const anchor = makeAnchor("https://example.com/report.pdf", "_self");
+      anchor.download = "report.pdf";
+      getClickGuard(context)(makeClickEvent(anchor));
+      await vi.waitFor(() =>
+        expect(context.nativeDownloadClicks).toEqual([
+          [anchor.href, "report.pdf"],
+        ]),
+      );
+      expect(
+        context.invokeCalls.filter(([command]) => command === "download_file"),
+      ).toHaveLength(1);
+    },
+  );
+
+  it("does not retry failed HTTP downloads through the browser", async () => {
+    const context = loadEventHelpers({
+      withTauri: true,
+      downloadError: "Download failed with HTTP status 403 Forbidden",
+    });
+    runDomReady(context);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      getClickGuard(context)(
+        makeClickEvent(makeAnchor("https://example.com/report.pdf", "_self")),
+      );
+      await vi.waitFor(() => expect(log).toHaveBeenCalled());
+      expect(context.nativeDownloadClicks).toEqual([]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([undefined, "", "  ", "about:blank", "about:blank#download"])(
+    "preserves a native blank popup proxy for %s",
+    (url) => {
+      const context = loadEventHelpers({ withTauri: true });
+      const popup = { location: { href: "about:blank" } };
+      const nativeOpen = vi.fn(() => popup);
+      context.window.open = nativeOpen;
+      runDomReady(context);
+      const result = context.window.open(url, "_blank");
+      expect(result).toBe(popup);
+      expect(nativeOpen).toHaveBeenCalledWith(
+        url === undefined || !url.trim() ? "about:blank" : url,
+        "_blank",
+        undefined,
+      );
+      result.location.href = "https://cdn.example.net/attachment";
+      expect(context.window.location.href).toBe("https://example.com/app");
+      expect(
+        context.invokeCalls.filter(([cmd]) => cmd === "plugin:shell|open"),
+      ).toEqual([]);
+    },
+  );
+
+  it.each(["https://outside.example/report", "https://example.com/report"])(
+    "retains the default route for a new named context: %s",
+    (url) => {
+      const context = loadEventHelpers({ withTauri: true });
+      context.window.open = vi.fn(() => null);
+      runDomReady(context);
+      context.window.open(url, "reportWindow");
+      if (url.startsWith("https://outside.example/")) {
+        expect(context.invokeCalls).toContainEqual([
+          "plugin:shell|open",
+          { path: url },
+        ]);
+      } else {
+        expect(context.window.location.href).toBe(url);
+      }
+    },
+  );
+
+  it.each([
+    ["internal", "https://example.com/forced", {}],
+    ["auth", "https://accounts.google.com/o/oauth2/auth", {}],
+    [
+      "forced internal",
+      "https://outside.example/forced",
+      { force_internal_navigation: true },
+    ],
+    [
+      "regex internal",
+      "https://outside.example/forced",
+      { internal_url_regex: "outside\\.example" },
+    ],
+  ])(
+    "rejects forged %s frame messages without navigating or opening windows",
+    (_kind, url, config) => {
+      const context = loadEventHelpers({
+        withTauri: true,
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_5)",
+      });
+      context.window.pakeConfig = config;
+      context.window.isAuthLink = context.window.isAuthPopup = (value) =>
+        value.includes("accounts.google.com");
+      const nativeOpen = vi.fn(() => ({}));
+      context.window.open = nativeOpen;
+      runDomReady(context);
+      const frame = { frames: [] };
+      context.window.frames.push(frame);
+      context.eventListeners.message[0].handler({
+        source: frame,
+        data: { type: "pake:frame-external-link", url },
+      });
+      expect(context.window.location.href).toBe("https://example.com/app");
+      expect(nativeOpen).not.toHaveBeenCalled();
+      expect(
+        context.invokeCalls.filter(
+          ([command]) => command === "plugin:shell|open",
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("routes early frame messages once after readiness and rechecks live sources", () => {
+    const context = loadEventHelpers({ withTauri: true });
+    const live = { frames: [] };
+    const removed = { frames: [] };
+    context.window.frames.push(live, removed);
+    const listener = context.eventListeners.message?.[0]?.handler;
+    expect(listener).toBeTypeOf("function");
+    for (const [source, suffix] of [
+      [live, "first"],
+      [live, "second"],
+      [removed, "removed"],
+    ]) {
+      listener({
+        source,
+        data: {
+          type: "pake:frame-external-link",
+          url: `https://outside.example/${suffix}`,
+        },
+      });
+    }
+    expect(context.invokeCalls).toEqual([]);
+    context.window.frames.pop();
+    runDomReady(context);
+    expect(
+      context.invokeCalls.filter(
+        ([command]) => command === "plugin:shell|open",
+      ),
+    ).toEqual([
+      ["plugin:shell|open", { path: "https://outside.example/first" }],
+      ["plugin:shell|open", { path: "https://outside.example/second" }],
+    ]);
+    expect(context.eventListeners.DOMContentLoaded).toHaveLength(1);
+  });
+
+  it("discards a departing document's queued frame messages", () => {
+    const context = loadEventHelpers({ withTauri: true });
+    const frame = { frames: [] };
+    context.window.frames.push(frame);
+    const listener = context.eventListeners.message?.[0]?.handler;
+    expect(listener).toBeTypeOf("function");
+    listener({
+      source: frame,
+      data: {
+        type: "pake:frame-external-link",
+        url: "https://outside.example/old",
+      },
+    });
+    context.eventListeners.pagehide[0].handler();
+    runDomReady(context);
+    expect(
+      context.invokeCalls.filter(
+        ([command]) => command === "plugin:shell|open",
+      ),
+    ).toEqual([]);
+  });
+
+  it("routes only descendant-frame messages with supported URL protocols", () => {
+    const context = loadEventHelpers({ withTauri: true });
+    runDomReady(context);
+    const frame = { frames: [] };
+    context.window.frames.push(frame);
+    const listener = context.eventListeners.message[0].handler;
+    const send = (source, url) =>
+      listener({ source, data: { type: "pake:frame-external-link", url } });
+    send(frame, "https://outside.example/article");
+    expect(context.invokeCalls).toContainEqual([
+      "plugin:shell|open",
+      { path: "https://outside.example/article" },
+    ]);
+    const count = context.invokeCalls.length;
+    send({ frames: [] }, "https://outside.example/unrelated");
+    send(frame, "file:///tmp/example");
+    send(frame, "javascript:alert(1)");
+    send(null, "https://outside.example/opaque");
+    expect(context.invokeCalls).toHaveLength(count);
+  });
   it("falls back from malformed saved zoom values", () => {
     const context = loadEventHelpers({
       withTauri: true,
@@ -222,6 +447,8 @@ describe("event link guard", () => {
           url: "https://github.com/owner/repo/releases/download/v1.28.3/app.dmg",
           filename: "app.dmg",
           language: "en-US",
+          page_url: "https://github.com/owner/repo/releases",
+          user_agent: "Mozilla/5.0",
         },
       },
     ]);
@@ -324,6 +551,8 @@ describe("event link guard", () => {
           url: "https://example.com/app/settings",
           filename: "settings.html",
           language: "en-US",
+          page_url: "https://example.com/app",
+          user_agent: "Mozilla/5.0",
         },
       },
     ]);
@@ -612,9 +841,12 @@ describe("event link guard", () => {
         "send_notification",
         {
           params: {
+            // Correlates the native click callback back to this instance.
+            id: expect.stringMatching(/^[A-Za-z0-9_-]{1,64}$/),
             title: "Hello",
             body: "World",
             icon: "https://example.com/icon.png",
+            silent: false,
           },
         },
       ],

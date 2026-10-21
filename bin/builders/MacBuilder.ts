@@ -1,7 +1,7 @@
 import path from 'path';
-import tauriConfig from '@/helpers/tauriConfig';
 import { PakeAppOptions } from '@/types';
 import BaseBuilder from './BaseBuilder';
+import type { ShellCommand } from '@/utils/shell';
 
 export default class MacBuilder extends BaseBuilder {
   private buildFormat: string;
@@ -47,7 +47,7 @@ export default class MacBuilder extends BaseBuilder {
     } else {
       arch = this.getArchDisplayName(this.resolveTargetArch(this.buildArch));
     }
-    return `${name}_${tauriConfig.version}_${arch}`;
+    return `${name}_${this.options.appVersion}_${arch}`;
   }
 
   getReportArch(): string {
@@ -65,7 +65,7 @@ export default class MacBuilder extends BaseBuilder {
     return this.resolveTargetArch(this.buildArch);
   }
 
-  protected getBuildCommand(packageManager: string = 'pnpm'): string {
+  protected getBuildCommand(packageManager: string = 'pnpm'): ShellCommand {
     const configPath = path.join('src-tauri', '.pake', 'tauri.conf.json');
     const actualArch = this.getActualArch();
 
