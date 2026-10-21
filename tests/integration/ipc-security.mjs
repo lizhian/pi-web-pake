@@ -17,6 +17,21 @@ const downloads = path.join(root, "downloads");
 const identifier = `com.pake.ipc-probe-${process.pid}`;
 const reports = new Map();
 const downloadRequests = [];
+const popupRequests = [];
+const popupReports = new Map();
+const delegatedPopups = [];
+let loadingReport;
+let finishLoadingPopup;
+const popupPaths = [
+  "/popup/history",
+  "/popup/project",
+  "/popup/session",
+  "/popup/link",
+  "/popup/implicit",
+  "/popup/loading",
+  "/popup/plain",
+  "/popup/two-stage",
+];
 let app;
 let attackerOrigin;
 let entryOrigin;
@@ -25,6 +40,14 @@ function page(stage, origin) {
   return `<!doctype html><meta charset="utf-8"><title>Pake IPC security probe</title>
 <body>Testing ${stage} origin permissions<main><section id="player"><video></video><button>Pause</button></section></main><script>
 (async () => {
+  if (${JSON.stringify(stage)} === "popup") {
+    // Run before DOMContentLoaded and the adapter to observe the first page script.
+    await fetch("/popup-report", {method:"POST", body:JSON.stringify({
+      path: location.pathname, openerIsNull: window.opener === null,
+      rootStyle: document.documentElement.style.backgroundColor
+    })});
+    return;
+  }
   const invoke = window.__TAURI__.core.invoke;
   const check = async (command, args) => {
     try { await invoke(command, args); return "allowed"; }
@@ -73,6 +96,39 @@ function page(stage, origin) {
   `
       : ""
   }
+  ${
+    stage === "entry"
+      ? `
+  await new Promise(resolve => document.readyState === "loading"
+    ? document.addEventListener("DOMContentLoaded", resolve, {once:true}) : resolve());
+  window.open("/popup/history", "_blank", "noopener,noreferrer");
+  window.open("/popup/project?cwd=test", "_blank", "NoOpener = yes,width=640");
+  window.open("/popup/session", "sessionReport", "noreferrer=1");
+  window.open("/popup/loading", "_blank", "noopener,noreferrer");
+  results.plainProxy = !!window.open("/popup/plain", "plainReport", "width=640");
+  const blank = window.open("", "_blank");
+  results.blankProxy = !!blank && blank !== window;
+  if (blank) blank.location.href = location.origin + "/popup/two-stage";
+  for (const [url, rel] of [
+    ["/popup/link", "noopener noreferrer"], ["/popup/implicit", ""],
+    ["/cancelled", ""], ["/cancelled-listener", ""]
+  ]) {
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.target = "_blank"; anchor.rel = rel;
+    if (url === "/cancelled") anchor.onclick = event => {
+      event.preventDefault();
+    };
+    if (url === "/cancelled-listener") anchor.addEventListener("click", event => {
+      event.preventDefault();
+    });
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  }
+  window.open("/native-popup.txt", "_blank", "noopener,noreferrer");
+  results.popupPreservesMain = location.href === ${JSON.stringify(origin + "/")};
+  await new Promise(resolve => setTimeout(resolve, 500));
+  `
+      : ""
+  }
   await fetch("/report", {method:"POST", body:JSON.stringify(results)});
   ${stage === "entry" ? `location.replace(${JSON.stringify(attackerOrigin)});` : ""}
 })().catch(error => fetch("/report", {method:"POST", body:JSON.stringify({error:String(error)})}));
@@ -82,20 +138,60 @@ function page(stage, origin) {
 async function server(stage) {
   let origin;
   const server = http.createServer(async (request, response) => {
-    if (request.url === "/native.txt" || request.url === "/attachment") {
+    const pathname = new URL(request.url, "http://localhost").pathname;
+    if (pathname.startsWith("/popup/") || pathname.startsWith("/cancelled")) {
+      const trusted =
+        request.headers["sec-fetch-site"] !== "cross-site" ||
+        request.headers["sec-fetch-user"] === "?1";
+      popupRequests.push({ path: pathname, trusted });
+      if (trusted && pathname === "/popup/loading") {
+        // Hold the response until the parent observes the initial document.
+        finishLoadingPopup = () => {
+          response.writeHead(200, { "content-type": "text/html" });
+          response.end(page("popup", origin));
+        };
+        if (loadingReport) finishLoadingPopup();
+        return;
+      }
+      response.writeHead(trusted ? 200 : 403, { "content-type": "text/html" });
+      response.end(trusted ? page("popup", origin) : "Untrusted API request");
+    } else if (
+      request.url === "/native.txt" ||
+      request.url === "/attachment" ||
+      request.url === "/native-popup.txt"
+    ) {
+      const names = {
+        "/native.txt": "native.txt",
+        "/attachment": "native-cross.txt",
+        "/native-popup.txt": "popup-window.txt",
+      };
       response.writeHead(200, {
         "content-type": "application/octet-stream",
-        "content-disposition": `attachment; filename="${request.url === "/native.txt" ? "native.txt" : "native-cross.txt"}"`,
+        "content-disposition": `attachment; filename="${names[request.url]}"`,
       });
       response.end("pake-native-browser-download");
     } else if (request.url === "/payload") {
       downloadRequests.push({ stage, headers: request.headers });
       response.writeHead(200, { "content-type": "text/plain" });
       response.end("pake-native-ipc-proof");
-    } else if (request.url === "/report") {
+    } else if (
+      [
+        "/report",
+        "/popup-report",
+        "/delegated-popup",
+        "/loading-report",
+      ].includes(request.url)
+    ) {
       const chunks = [];
       for await (const chunk of request) chunks.push(chunk);
-      reports.set(stage, JSON.parse(Buffer.concat(chunks).toString()));
+      const report = JSON.parse(Buffer.concat(chunks).toString());
+      if (request.url === "/loading-report") {
+        loadingReport = report;
+        finishLoadingPopup?.();
+      } else if (request.url === "/popup-report")
+        popupReports.set(report.path, report);
+      else if (request.url === "/delegated-popup") delegatedPopups.push(report);
+      else reports.set(stage, report);
       response.end("ok");
     } else {
       response.writeHead(200, {
@@ -137,11 +233,38 @@ try {
   );
   await fs.mkdir(path.join(fixture, "dist"));
   await fs.writeFile(path.join(fixture, "dist", "index.html"), "IPC fixture");
+  const adapter = await fs.readFile(
+    path.join(repo, "scripts/pi-web-inject.js"),
+    "utf8",
+  );
+  await fs.writeFile(
+    path.join(fixture, "src-tauri/src/inject/custom.js"),
+    `
+window.addEventListener("DOMContentLoaded", () => {
+  const delegate = window.open;
+  window.open = function(url, target, features) {
+    fetch("/delegated-popup", {method:"POST", body:JSON.stringify({url, target, features})});
+    const popup = delegate.call(this, url, target, features);
+    if (String(url).endsWith("/popup/loading") && popup) queueMicrotask(() => {
+      const initial = popup.document;
+      fetch("/loading-report", {method:"POST", body:JSON.stringify({
+        url: initial.URL,
+        background: popup.getComputedStyle(initial.documentElement).backgroundColor,
+        colorScheme: popup.getComputedStyle(initial.documentElement).colorScheme,
+        bodyBackground: popup.getComputedStyle(initial.body).backgroundColor
+      })});
+    });
+    return popup;
+  };
+  ${adapter}
+});`,
+  );
   const pake = JSON.parse(
     await fs.readFile(path.join(fixture, "src-tauri", "pake.json")),
   );
   pake.windows[0].url = entry.origin;
   pake.windows[0].url_type = "web";
+  pake.windows[0].new_window = true;
   pake.download_dir = downloads;
   pake.system_tray.macos = false;
   const tauri = JSON.parse(
@@ -191,6 +314,79 @@ try {
   assert.ok(reports.has("entry"), "configured entry page did not report");
   assert.ok(reports.has("attacker"), "cross-origin page did not report");
   const trusted = reports.get("entry");
+  assert.equal(
+    trusted.popupPreservesMain,
+    true,
+    "popup replaced the main page",
+  );
+  assert.equal(trusted.plainProxy, true, "ordinary window.open lost its proxy");
+  assert.equal(
+    trusted.blankProxy,
+    true,
+    "two-stage popup lost its separate proxy",
+  );
+  assert.ok(
+    popupRequests.every((request) => request.trusted),
+    "popup was rejected as a cross-site API request",
+  );
+  assert.equal(
+    popupRequests.filter((request) => request.path.startsWith("/cancelled"))
+      .length,
+    0,
+    "cancelled SPA link opened a window",
+  );
+  while (popupReports.size < popupPaths.length && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  for (const pathname of popupPaths) {
+    assert.equal(
+      popupRequests.filter((request) => request.path === pathname).length,
+      1,
+      `${pathname}: expected exactly one request`,
+    );
+    assert.ok(
+      popupReports.has(pathname),
+      `${pathname}: first page script did not report`,
+    );
+  }
+  assert.equal(
+    loadingReport?.url,
+    "about:blank",
+    "the initial document was not observed",
+  );
+  assert.equal(
+    loadingReport.background,
+    "rgb(0, 0, 0)",
+    "loading canvas is not black",
+  );
+  assert.equal(loadingReport.bodyBackground, "rgb(0, 0, 0)");
+  assert.equal(loadingReport.colorScheme, "dark");
+  assert.equal(
+    popupReports.get("/popup/loading").rootStyle,
+    "",
+    "loading styles leaked into the destination document",
+  );
+  for (const pathname of popupPaths.slice(0, 6)) {
+    assert.equal(
+      popupReports.get(pathname).openerIsNull,
+      true,
+      `${pathname}: first page script retained its opener`,
+    );
+    const opened = delegatedPopups.find((request) =>
+      request.url?.startsWith(entryOrigin + pathname),
+    );
+    assert.ok(
+      opened,
+      `${pathname}: native call did not open the destination directly`,
+    );
+    assert.equal(opened.target, "_blank");
+    assert.doesNotMatch(opened.features, /noopener|noreferrer/i);
+  }
+  assert.equal(
+    delegatedPopups.filter((request) => request.url === "about:blank").length,
+    0,
+    "adapter added an about:blank intermediary",
+  );
   const untrusted = reports.get("attacker");
   const request = downloadRequests.find((item) => item.stage === "entry");
   assert.equal(request.headers["user-agent"], trusted.userAgent);
@@ -240,7 +436,7 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
-  for (const file of ["native.txt", "native-cross.txt"]) {
+  for (const file of ["native.txt", "native-cross.txt", "popup-window.txt"]) {
     assert.equal(
       await fs.readFile(path.join(downloads, file), "utf8"),
       "pake-native-browser-download",
@@ -267,7 +463,7 @@ try {
     await assert.rejects(fs.stat(file), { code: "ENOENT" });
   }
   console.log(
-    "Native IPC PASS: download UA, Referer and HttpOnly cookies match the webview; entry commands and window.print work, cross-origin commands are denied, browser downloads survive denied IPC, fullscreen denial preserves layout, traversal remains inside Downloads.",
+    "Native IPC PASS: direct same-origin popups load once with isolated openers and a black loading document; destination styles, links, proxies, native attachments and origin ACLs remain intact.",
   );
 } finally {
   if (app && app.exitCode === null) {

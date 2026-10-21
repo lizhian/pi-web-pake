@@ -1,0 +1,47 @@
+/* Only the top-left main-app header receives this marker from the adapter. */
+[data-pi-web-titlebar] {
+  --pi-web-titlebar-gutter: 80px;
+  box-sizing: border-box !important;
+  height: 36px !important;
+  flex-wrap: nowrap !important;
+  padding-left: var(--pi-web-titlebar-gutter) !important;
+}
+
+/* Let Pi Web's own measured fitting states decide when to hide the brand. */
+[data-pi-web-titlebar="sidebar"][data-fit="2"] > .sidebar-brand {
+  display: none !important;
+}
+
+/* The full-width file panel covers the main header, including terminal tabs. */
+@media screen {
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open.right-panel-full-width
+    > div:first-child {
+    box-sizing: border-box;
+    padding-left: 80px;
+  }
+}
+
+/* Pi Web also covers the window with this panel in its narrow layout. */
+@media screen and (max-width: 640px) {
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open
+    > div:first-child {
+    box-sizing: border-box;
+    padding-left: 80px;
+  }
+}
+
+/* Reserve a full control row without moving the exported messages pane. */
+@media screen {
+  html[data-pi-web-history-titlebar] #app > #sidebar {
+    box-sizing: border-box;
+    padding-top: 36px;
+  }
+}
+
+@media screen and (max-width: 900px) {
+  html[data-pi-web-history-titlebar] #hamburger {
+    top: 46px;
+  }
+}
