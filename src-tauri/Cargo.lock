@@ -2570,16 +2570,15 @@ version = "3.17.6"
 dependencies = [
  "block2",
  "dispatch",
- "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
  "objc2-web-kit",
+ "pake-enhancements",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-http",
  "tauri-plugin-notification",
@@ -2594,6 +2593,17 @@ dependencies = [
  "windows-core 0.61.2",
  "windows-sys 0.61.2",
  "zbus",
+]
+
+[[package]]
+name = "pake-enhancements"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "tauri",
+ "tauri-plugin-dialog",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

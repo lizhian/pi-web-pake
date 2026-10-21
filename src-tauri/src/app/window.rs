@@ -619,11 +619,6 @@ fn build_window(
             .unwrap_or(include_str!("../inject/custom.js")),
     );
 
-    if window_config.drag_region_height.is_some() {
-        window_builder =
-            window_builder.initialization_script(include_str!("../inject/managed-window.js"));
-    }
-
     #[cfg(target_os = "windows")]
     let mut windows_browser_args = String::from("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-blink-features=AutomationControlled");
 
@@ -834,13 +829,11 @@ fn build_window(
         });
     }
 
-    #[cfg(target_os = "macos")]
-    if let (Some(x), Some(y)) = (window_config.traffic_light_x, window_config.traffic_light_y) {
-        if window_config.hide_title_bar {
-            window_builder =
-                window_builder.traffic_light_position(tauri::LogicalPosition::new(x, y));
-        }
-    }
+    window_builder = pake_enhancements::configure_window(
+        window_builder,
+        &window_config.enhancements,
+        window_config.hide_title_bar,
+    );
 
     window_builder = window_builder.on_navigation(|_| true);
 

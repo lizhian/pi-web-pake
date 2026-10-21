@@ -1,47 +1,34 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-
-function renderStyles(dragRegionHeight) {
-  const source = fs.readFileSync(
-    path.join(process.cwd(), "src-tauri/src/inject/managed-window.js"),
-    "utf8",
-  );
-  const listeners = {};
-  const children = [];
+const source = fs.readFileSync(
+  "src-tauri/extensions/pake-enhancements/src/window.js",
+  "utf8",
+);
+function renderStyles(height) {
+  const styles = new Map();
   const context = {
     window: {
-      pakeConfig: {
-        ...(dragRegionHeight === undefined
-          ? {}
-          : { drag_region_height: dragRegionHeight }),
-      },
-      addEventListener(type, handler) {
-        listeners[type] = handler;
+      pakeConfig: { drag_region_height: height },
+      __PAKE_INJECT_STYLE__(css, id) {
+        styles.set(id, css);
       },
     },
-    document: {
-      createElement: () => ({ textContent: "" }),
-      head: {
-        appendChild(child) {
-          children.push(child);
-        },
-      },
-    },
+    document: { readyState: "complete" },
   };
   runInNewContext(source, context);
-  listeners.DOMContentLoaded();
-  return children.map((child) => child.textContent).join("\n");
+  runInNewContext(source, context);
+  return [...styles.values()];
 }
-
-describe("immersive drag region height", () => {
-  it("does not override the upstream default when unset", () => {
-    expect(renderStyles(undefined)).toBe("");
-  });
-
-  it("uses custom and zero-height values", () => {
-    expect(renderStyles(10)).toContain("height: 10px");
-    expect(renderStyles(0)).toContain("height: 0px");
+describe("enhanced drag region", () => {
+  it("keeps the default and applies custom or zero height through the shared style injector", () => {
+    expect(renderStyles(undefined)).toEqual([]);
+    expect(renderStyles(null)).toEqual([]);
+    expect(renderStyles(10)).toEqual([
+      "#pake-top-dom { height: 10px !important; }",
+    ]);
+    expect(renderStyles(0)).toEqual([
+      "#pake-top-dom { height: 0px !important; }",
+    ]);
   });
 });

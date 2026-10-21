@@ -13,12 +13,6 @@ pub struct WindowConfig {
     #[serde(default)]
     pub transparent_title_bar: bool,
     #[serde(default)]
-    pub traffic_light_x: Option<f64>,
-    #[serde(default)]
-    pub traffic_light_y: Option<f64>,
-    #[serde(default)]
-    pub drag_region_height: Option<f64>,
-    #[serde(default)]
     pub hide_window_decorations: bool,
     pub fullscreen: bool,
     pub maximize: bool,
@@ -56,6 +50,8 @@ pub struct WindowConfig {
     pub min_height: f64,
     #[serde(default)]
     pub ignore_certificate_errors: bool,
+    #[serde(flatten)]
+    pub enhancements: pake_enhancements::WindowConfig,
 }
 
 fn default_zoom() -> u32 {
@@ -136,9 +132,6 @@ pub struct PakeConfig {
     pub multi_instance: bool,
     #[serde(default)]
     pub multi_window: bool,
-    #[cfg(feature = "managed-server")]
-    #[serde(default)]
-    pub server: Option<crate::local_server::ServerConfig>,
     /// Replaces the compiled custom.js when a runtime override supplies one.
     #[serde(skip)]
     pub runtime_custom_js: Option<String>,
@@ -146,6 +139,8 @@ pub struct PakeConfig {
     /// directories follow the identifier rather than the product name.
     #[serde(skip)]
     pub runtime_app: bool,
+    #[serde(flatten)]
+    pub enhancements: pake_enhancements::AppConfig,
 }
 
 impl PakeConfig {

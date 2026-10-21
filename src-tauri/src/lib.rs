@@ -1,7 +1,5 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 mod app;
-#[cfg(feature = "managed-server")]
-mod local_server;
 mod util;
 
 use std::sync::{
@@ -341,13 +339,6 @@ pub fn run_app() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init()); // Add this
 
-    #[cfg(feature = "managed-server")]
-    {
-        app_builder = app_builder
-            .plugin(tauri_plugin_dialog::init())
-            .plugin(local_server::plugin(pake_config.server.clone()));
-    }
-
     // Only add single instance plugin if multiple instances are not allowed
     if !multi_instance {
         let instance_revealed = startup_window_revealed.clone();
@@ -365,6 +356,12 @@ pub fn run_app() {
             },
         ));
     }
+
+    app_builder = pake_enhancements::configure_runtime(
+        app_builder,
+        &pake_config.enhancements,
+        multi_instance,
+    );
 
     // Reveal hidden windows after the first real document finishes loading so
     // slow WKWebView cold starts do not expose an empty but interactive shell.

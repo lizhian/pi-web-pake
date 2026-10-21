@@ -257,10 +257,7 @@ export interface PakeTauriConfig {
     [key: string]: unknown;
   };
   app: {
-    security?: {
-      headers?: Record<string, string>;
-      capabilities?: Array<string | Record<string, unknown>>;
-    };
+    security?: { headers?: Record<string, string> };
     trayIcon?: unknown;
     [key: string]: unknown;
   };
