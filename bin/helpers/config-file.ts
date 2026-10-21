@@ -2,7 +2,7 @@ import fsExtra from 'fs-extra';
 import { DEFAULT_PAKE_OPTIONS as DEFAULT } from '../defaults';
 import { PakeError } from '../utils/error';
 import { PakeCliOptions } from '../types';
-import { getManagedLocalAppConfigRule } from '../extensions/managed-local-app';
+import { parseManagedLocalAppConfigField } from '../extensions/managed-local-app';
 
 /**
  * `--config <path>` support: a declarative JSON manifest whose fields mirror
@@ -48,8 +48,6 @@ const ENUM_VALUES: Record<string, readonly string[]> = {
 function expectedTypeFor(key: string): ExpectedType | null {
   if (key === 'inject') return 'string[]';
   if (key === 'hideOnClose') return 'boolean';
-  const managedRule = getManagedLocalAppConfigRule(key);
-  if (managedRule) return managedRule.type;
   if (EXTRA_STRING_KEYS.has(key)) return 'string';
   const defaultValue = (DEFAULT as unknown as Record<string, unknown>)[key];
   const type = typeof defaultValue;
@@ -128,6 +126,12 @@ export async function loadConfigFile(
       });
     }
 
+    const extension = parseManagedLocalAppConfigField(key, value);
+    if (extension.handled) {
+      (result.options as Record<string, unknown>)[key] = extension.value;
+      continue;
+    }
+
     const expected = expectedTypeFor(key);
     if (expected && !matchesType(value, expected)) {
       throw new PakeError(
@@ -150,11 +154,10 @@ export async function loadConfigFile(
     }
 
     if (typeof value === 'number') {
-      const managedRule = getManagedLocalAppConfigRule(key);
-      const range = NUMBER_RANGES[key] ?? managedRule?.range;
+      const range = NUMBER_RANGES[key];
       const min = range?.min ?? 0;
       const max = range?.max;
-      const integer = range?.integer === true || managedRule?.integer === true;
+      const integer = range?.integer === true;
       if (
         !Number.isFinite(value) ||
         (integer && !Number.isInteger(value)) ||

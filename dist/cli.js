@@ -925,6 +925,99 @@ function resolveLinuxBundleTargets(targets) {
     return { bundleTargets, hasValidTarget: requested.length > 0 };
 }
 
+function validateManagedLocalAppOptions(options, url) {
+    const hasTrafficLightX = options.trafficLightX !== undefined;
+    const hasTrafficLightY = options.trafficLightY !== undefined;
+    if (hasTrafficLightX !== hasTrafficLightY) {
+        throw new PakeError('--traffic-light-x and --traffic-light-y must be provided together.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass both coordinates or omit both.',
+        });
+    }
+    const hasPort = options.serverPort !== undefined;
+    const hasCommand = options.serverCommand !== undefined;
+    const command = options.serverCommand?.trim();
+    if (hasCommand && !command) {
+        throw new PakeError('--server-command must not be empty.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass the foreground command that starts the local web server.',
+        });
+    }
+    if (hasPort !== hasCommand) {
+        throw new PakeError('--server-port and --server-command must be provided together.', {
+            code: 'INVALID_INPUT',
+            hint: 'Pass both options to manage a local server, or omit both.',
+        });
+    }
+    if (!hasPort || !command)
+        return undefined;
+    if (options.multiInstance) {
+        throw new PakeError('--server-port/--server-command cannot be used with --multi-instance.', {
+            code: 'INVALID_INPUT',
+            hint: 'Use the default single-instance mode so one app process owns the managed server.',
+        });
+    }
+    let target;
+    try {
+        target = new URL(url);
+    }
+    catch {
+        throw new PakeError('Managed local servers require an HTTP or HTTPS URL.', {
+            code: 'INVALID_INPUT',
+            hint: `Use http://127.0.0.1:${options.serverPort} or an equivalent loopback URL.`,
+        });
+    }
+    const hostname = target.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (!['http:', 'https:'].includes(target.protocol) ||
+        !['localhost', '127.0.0.1', '::1'].includes(hostname)) {
+        throw new PakeError('Managed local servers require a loopback HTTP or HTTPS URL.', {
+            code: 'INVALID_INPUT',
+            hint: `Use http://127.0.0.1:${options.serverPort}, http://localhost:${options.serverPort}, or the IPv6 loopback equivalent.`,
+        });
+    }
+    const effectivePort = target.port
+        ? Number(target.port)
+        : target.protocol === 'https:'
+            ? 443
+            : 80;
+    if (effectivePort !== options.serverPort) {
+        throw new PakeError(`Target URL port ${effectivePort} does not match --server-port ${options.serverPort}.`, {
+            code: 'INVALID_INPUT',
+            hint: 'Use the same port in the target URL and --server-port.',
+        });
+    }
+    options.serverCommand = command;
+    return hostname;
+}
+function hasManagedServerConfig(options) {
+    return (options.serverHost !== undefined &&
+        options.serverPort !== undefined &&
+        Boolean(options.serverCommand));
+}
+function getManagedServerBuildFeatures(options) {
+    return hasManagedServerConfig(options) ? ['managed-server'] : [];
+}
+
+const MANAGED_LOCAL_APP_DEFAULTS = {
+    dragRegionHeight: 20,
+    serverTimeout: 30,
+};
+
+function buildManagedWindowConfigOverrides(options, platform) {
+    const overrides = {};
+    if (platform === 'darwin' &&
+        options.hideTitleBar &&
+        options.trafficLightX !== undefined &&
+        options.trafficLightY !== undefined) {
+        overrides.traffic_light_x = options.trafficLightX;
+        overrides.traffic_light_y = options.trafficLightY;
+    }
+    if (options.dragRegionHeight !== MANAGED_LOCAL_APP_DEFAULTS.dragRegionHeight) {
+        overrides.drag_region_height = options.dragRegionHeight;
+    }
+    return overrides;
+}
+
 // Extracts the domain from a given URL.
 function getDomain(inputUrl) {
     try {
@@ -1037,10 +1130,6 @@ function validateDownloadDirInput(value) {
     return value;
 }
 
-const MANAGED_LOCAL_APP_DEFAULTS = {
-    dragRegionHeight: 20,
-    serverTimeout: 30,
-};
 const MANAGED_LOCAL_APP_CONFIG = {
     stringKeys: ['serverCommand'],
     integerKeys: ['serverPort', 'serverTimeout'],
@@ -1087,101 +1176,35 @@ function addManagedLocalAppOptions(command, defaults) {
         .option('--server-command <string>', 'Shell command that starts the local server')
         .option('--server-timeout <seconds>', 'Seconds to wait for the local server', validateServerTimeout, defaults.serverTimeout);
 }
-function validateManagedLocalAppOptions(options, url) {
-    const hasTrafficLightX = options.trafficLightX !== undefined;
-    const hasTrafficLightY = options.trafficLightY !== undefined;
-    if (hasTrafficLightX !== hasTrafficLightY) {
-        throw new PakeError('--traffic-light-x and --traffic-light-y must be provided together.', {
+function parseManagedLocalAppConfigField(key, value) {
+    const rule = getManagedLocalAppConfigRule(key);
+    if (!rule)
+        return { handled: false };
+    if (typeof value !== rule.type) {
+        throw new PakeError(`Config field "${key}" must be of type ${rule.type}.`, {
             code: 'INVALID_INPUT',
-            hint: 'Pass both coordinates or omit both.',
+            hint: 'See schema/pake.schema.json for field types.',
         });
     }
-    const hasPort = options.serverPort !== undefined;
-    const hasCommand = options.serverCommand !== undefined;
-    const command = options.serverCommand?.trim();
-    if (hasCommand && !command) {
-        throw new PakeError('--server-command must not be empty.', {
-            code: 'INVALID_INPUT',
-            hint: 'Pass the foreground command that starts the local web server.',
-        });
+    if (typeof value === 'number') {
+        const min = rule.range?.min ?? 0;
+        const max = rule.range?.max;
+        if (!Number.isFinite(value) ||
+            (rule.integer && !Number.isInteger(value)) ||
+            value < min ||
+            (max !== undefined && value > max)) {
+            const bounds = max !== undefined ? `${min}-${max}` : `>= ${min}`;
+            const kind = rule.integer ? 'an integer' : 'a finite number';
+            throw new PakeError(`Config field "${key}" must be ${kind} (${bounds}).`, {
+                code: 'INVALID_INPUT',
+                hint: 'See schema/pake.schema.json for field ranges.',
+            });
+        }
     }
-    if (hasPort !== hasCommand) {
-        throw new PakeError('--server-port and --server-command must be provided together.', {
-            code: 'INVALID_INPUT',
-            hint: 'Pass both options to manage a local server, or omit both.',
-        });
-    }
-    if (!hasPort || !command)
-        return undefined;
-    if (options.multiInstance) {
-        throw new PakeError('--server-port/--server-command cannot be used with --multi-instance.', {
-            code: 'INVALID_INPUT',
-            hint: 'Use the default single-instance mode so one app process owns the managed server.',
-        });
-    }
-    let target;
-    try {
-        target = new URL(url);
-    }
-    catch {
-        throw new PakeError('Managed local servers require an HTTP or HTTPS URL.', {
-            code: 'INVALID_INPUT',
-            hint: `Use http://127.0.0.1:${options.serverPort} or an equivalent loopback URL.`,
-        });
-    }
-    const hostname = target.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    if (!['http:', 'https:'].includes(target.protocol) ||
-        !['localhost', '127.0.0.1', '::1'].includes(hostname)) {
-        throw new PakeError('Managed local servers require a loopback HTTP or HTTPS URL.', {
-            code: 'INVALID_INPUT',
-            hint: `Use http://127.0.0.1:${options.serverPort}, http://localhost:${options.serverPort}, or the IPv6 loopback equivalent.`,
-        });
-    }
-    const effectivePort = target.port
-        ? Number(target.port)
-        : target.protocol === 'https:'
-            ? 443
-            : 80;
-    if (effectivePort !== options.serverPort) {
-        throw new PakeError(`Target URL port ${effectivePort} does not match --server-port ${options.serverPort}.`, {
-            code: 'INVALID_INPUT',
-            hint: 'Use the same port in the target URL and --server-port.',
-        });
-    }
-    options.serverCommand = command;
-    return hostname;
+    return { handled: true, value: value };
 }
-function buildManagedWindowConfigOverrides(options, platform) {
-    const overrides = {};
-    if (platform === 'darwin' &&
-        options.hideTitleBar &&
-        options.trafficLightX !== undefined &&
-        options.trafficLightY !== undefined) {
-        overrides.traffic_light_x = options.trafficLightX;
-        overrides.traffic_light_y = options.trafficLightY;
-    }
-    if (options.dragRegionHeight !== MANAGED_LOCAL_APP_DEFAULTS.dragRegionHeight) {
-        overrides.drag_region_height = options.dragRegionHeight;
-    }
-    return overrides;
-}
-function hasManagedServerConfig(options) {
-    return (options.serverHost !== undefined &&
-        options.serverPort !== undefined &&
-        Boolean(options.serverCommand));
-}
-function getManagedServerBuildFeatures(options) {
-    return hasManagedServerConfig(options) ? ['managed-server'] : [];
-}
-function buildServerRemoteUrlPattern(url) {
-    const target = new URL(url);
-    const hostname = target.hostname.startsWith('[')
-        ? target.hostname.replace(/:/g, '\\:')
-        : target.hostname;
-    return `${target.protocol}//${hostname}${target.port ? `:${target.port}` : ''}/*`;
-}
-async function applyManagedLocalAppConfig(url, options, tauriConf, platform) {
-    var _a;
+
+function applyManagedLocalAppConfig(options, tauriConf, platform) {
     if (options.trafficLightX !== undefined) {
         if (platform !== 'darwin') {
             logger.warn('✼ --traffic-light-x/--traffic-light-y are only supported on macOS and will be ignored on this platform.');
@@ -1201,23 +1224,6 @@ async function applyManagedLocalAppConfig(url, options, tauriConf, platform) {
         command: options.serverCommand,
         timeout: options.serverTimeout,
     };
-    let capabilityPath = path.join(npmDirectory, 'src-tauri', 'capabilities', 'default.json');
-    if (!(await fsExtra.pathExists(capabilityPath))) {
-        capabilityPath = path.join(npmDirectory, '..', 'src-tauri', 'capabilities', 'default.json');
-    }
-    const capability = (await fsExtra.readJSON(capabilityPath));
-    const { $schema: _schema, ...baseCapability } = capability;
-    const security = ((_a = tauriConf.app).security ?? (_a.security = {}));
-    security.capabilities = [
-        capability.identifier,
-        {
-            ...baseCapability,
-            identifier: 'pake-managed-server-capability',
-            description: 'Capability for the configured managed loopback server.',
-            local: false,
-            remote: { urls: [buildServerRemoteUrlPattern(url)] },
-        },
-    ];
 }
 
 /**
@@ -1659,7 +1665,7 @@ async function mergeConfig(url, options, tauriConf) {
     const safeAppName = getSafeAppName(name);
     await mergeIcons(options, name, tauriConf, platform, safeAppName);
     await injectCustomCode(options, tauriConf);
-    await applyManagedLocalAppConfig(url, options, tauriConf, platform);
+    applyManagedLocalAppConfig(options, tauriConf, platform);
     if (platform === 'darwin') {
         await generateMacEntitlements(camera, microphone);
     }
@@ -4025,9 +4031,6 @@ function expectedTypeFor(key) {
         return 'string[]';
     if (key === 'hideOnClose')
         return 'boolean';
-    const managedRule = getManagedLocalAppConfigRule(key);
-    if (managedRule)
-        return managedRule.type;
     if (EXTRA_STRING_KEYS.has(key))
         return 'string';
     const defaultValue = DEFAULT_PAKE_OPTIONS[key];
@@ -4093,6 +4096,11 @@ async function loadConfigFile(configPath, validKeys) {
                 hint: 'Field names are camelCase CLI option names; see schema/pake.schema.json.',
             });
         }
+        const extension = parseManagedLocalAppConfigField(key, value);
+        if (extension.handled) {
+            result.options[key] = extension.value;
+            continue;
+        }
         const expected = expectedTypeFor(key);
         if (expected && !matchesType(value, expected)) {
             throw new PakeError(`Config field "${key}" must be of type ${expected}.`, {
@@ -4108,11 +4116,10 @@ async function loadConfigFile(configPath, validKeys) {
             });
         }
         if (typeof value === 'number') {
-            const managedRule = getManagedLocalAppConfigRule(key);
-            const range = NUMBER_RANGES[key] ?? managedRule?.range;
+            const range = NUMBER_RANGES[key];
             const min = range?.min ?? 0;
             const max = range?.max;
-            const integer = range?.integer === true || managedRule?.integer === true;
+            const integer = range?.integer === true;
             if (!Number.isFinite(value) ||
                 (integer && !Number.isInteger(value)) ||
                 value < min ||

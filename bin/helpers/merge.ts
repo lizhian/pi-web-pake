@@ -653,7 +653,7 @@ export async function mergeConfig(
   await mergeIcons(options, name, tauriConf, platform, safeAppName);
 
   await injectCustomCode(options, tauriConf);
-  await applyManagedLocalAppConfig(url, options, tauriConf, platform);
+  applyManagedLocalAppConfig(options, tauriConf, platform);
 
   if (platform === 'darwin') {
     await generateMacEntitlements(camera, microphone);

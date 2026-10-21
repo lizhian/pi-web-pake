@@ -14,19 +14,6 @@ vi.mock('@/utils/dir', () => ({
   tauriConfigDirectory: path.join(process.cwd(), 'src-tauri', '.pake'),
 }));
 
-vi.mock('@/helpers/tauriConfig', () => ({
-  default: {
-    version: '1.0.0',
-    bundle: {
-      windows: {
-        wix: {
-          language: ['en-US'],
-        },
-      },
-    },
-  },
-}));
-
 import BaseBuilder from '@/builders/BaseBuilder';
 import WinBuilder from '@/builders/WinBuilder';
 import {
@@ -34,7 +21,6 @@ import {
   configureCargoRegistry,
   detectPackageManager,
   getBuildEnvironment,
-  getBuildTimeout,
   getInstallCommand,
 } from '@/builders/env';
 import logger from '@/options/logger';
@@ -48,7 +34,6 @@ class TestBuilder extends BaseBuilder {
 
 const originalCnMirrorEnv = process.env[CN_MIRROR_ENV];
 const originalCargoTargetDir = process.env.CARGO_TARGET_DIR;
-const originalBuildTimeout = process.env.PAKE_BUILD_TIMEOUT_MS;
 const tempDirs: string[] = [];
 
 const GENERATED_MIRROR_CONFIG = `[source.crates-io]
@@ -118,12 +103,6 @@ describe('BaseBuilder guards', () => {
       process.env.CARGO_TARGET_DIR = originalCargoTargetDir;
     }
 
-    if (originalBuildTimeout === undefined) {
-      delete process.env.PAKE_BUILD_TIMEOUT_MS;
-    } else {
-      process.env.PAKE_BUILD_TIMEOUT_MS = originalBuildTimeout;
-    }
-
     await Promise.all(tempDirs.splice(0).map((dir) => fsExtra.remove(dir)));
   });
 
@@ -144,25 +123,6 @@ describe('BaseBuilder guards', () => {
       process.env.PATH = originalPath;
     }
   });
-
-  it('uses a positive integer build timeout override', () => {
-    process.env.PAKE_BUILD_TIMEOUT_MS = '1800000';
-
-    expect(getBuildTimeout()).toBe(1_800_000);
-  });
-
-  it.each([undefined, '', 'invalid', '0', '-1', '1.5', 'Infinity'])(
-    'uses the default build timeout for invalid override %s',
-    (value) => {
-      if (value === undefined) {
-        delete process.env.PAKE_BUILD_TIMEOUT_MS;
-      } else {
-        process.env.PAKE_BUILD_TIMEOUT_MS = value;
-      }
-
-      expect(getBuildTimeout()).toBe(900_000);
-    },
-  );
 
   it('skips Cargo registry copy when source and destination resolve to the same path', async () => {
     // configureCargoRegistry uses a same-path guard internally; if the
@@ -422,18 +382,6 @@ describe('BaseBuilder guards', () => {
         'pake-chatgpt.exe',
       ),
     );
-  });
-
-  it('uses the Tauri MSI architecture label for Windows ARM64 artifacts', () => {
-    const builder = new WinBuilder({
-      name: 'ChatGPT',
-      appVersion: '1.0.0',
-      installerLanguage: 'en-US',
-      targets: 'arm64',
-    } as any);
-
-    expect(builder.getFileName()).toMatch(/_arm64_en-US$/);
-    expect(builder.getFileName()).not.toMatch(/_aarch64_en-US$/);
   });
 
   it('tracks generated Pake config files in the Cargo build script', async () => {

@@ -3,7 +3,7 @@ import type {
   ManagedLocalAppResolvedOptions,
   ManagedPakeConfig,
   ManagedWindowConfig,
-} from './extensions/managed-local-app.js';
+} from './extensions/managed-local-app/contracts.js';
 
 export type SupportedPlatform = 'win32' | 'darwin' | 'linux';
 export type TauriPlatform = 'windows' | 'macos' | 'linux';

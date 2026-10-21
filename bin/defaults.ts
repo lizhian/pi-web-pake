@@ -1,6 +1,6 @@
 import { PakeCliOptions } from './types.js';
 import { getDefaultLinuxTargets } from './utils/platform.js';
-import { MANAGED_LOCAL_APP_DEFAULTS } from './extensions/managed-local-app.js';
+import { MANAGED_LOCAL_APP_DEFAULTS } from './extensions/managed-local-app/contracts.js';
 
 export const DEFAULT_PAKE_OPTIONS: PakeCliOptions = {
   ...MANAGED_LOCAL_APP_DEFAULTS,
