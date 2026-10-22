@@ -69,7 +69,10 @@ impl Drop for ManagedProcess {
 fn shell_command(command: &str) -> Command {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     let mut process = Command::new("cmd.exe");
-    process.args(["/D", "/S", "/C", command]);
+    // cmd.exe parses its command string itself, without CRT argument escaping.
+    process
+        .args(["/D", "/S", "/C"])
+        .raw_arg(format!("\"{command}\""));
     process.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
     process
 }

@@ -188,7 +188,7 @@ if (process.argv[2] === "--serve") {
         await waitFor(() => listening(port), "ordinary fixture server");
       }
       const identifier = `com.pake.enhancement-${stage}-${process.pid}`;
-      const name = `PakeProbe-${stage}`;
+      const name = `pake-probe-${stage}`;
       const args = [
         cli,
         url,
