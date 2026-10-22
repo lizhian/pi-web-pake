@@ -9,7 +9,7 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let directory = std::env::temp_dir().join(format!(
-            "pake server-{}-{}",
+            "pake-server-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

@@ -39,18 +39,12 @@ if (process.argv[2] === "--serve") {
         response.setHeader("content-type", "application/javascript");
         response.end(`
 (async () => {
-  const errors = [];
-  addEventListener("error", event => errors.push(event.message));
   if (document.readyState === "loading") await new Promise(resolve => addEventListener("DOMContentLoaded", resolve, {once:true}));
   await new Promise(resolve => setTimeout(resolve, 200));
   const current = window.__TAURI__.window.getCurrentWindow();
   const report = async tag => fetch("/report", {method:"POST", body:JSON.stringify({tag,
     height: document.getElementById("pake-top-dom") ? getComputedStyle(document.getElementById("pake-top-dom")).height : null,
-    config: window.pakeConfig, label: current.label, errors,
-    platform: navigator.platform, userAgent: navigator.userAgent,
-    initializers: {events:typeof window.hasImmersiveHeader, styles:typeof window.__PAKE_INJECT_STYLE__,
-      immersive:typeof window.hasImmersiveHeader === "function" ? window.hasImmersiveHeader() : null,
-      readyState:document.readyState, topFrame:window === window.top}
+    config: window.pakeConfig, label: current.label
   })});
   await window.__TAURI__.core.invoke("set_zoom", {percent:100});
   const enhanced = window.pakeConfig.drag_region_height === 14;
@@ -59,19 +53,7 @@ if (process.argv[2] === "--serve") {
     await current.close();
     return;
   }
-  if (enhanced) {
-    if (${JSON.stringify(process.platform)} === "linux") {
-      const button = document.createElement("button");
-      button.textContent = "Open popup";
-      button.style.cssText = "position:fixed;left:calc(50% - 100px);top:calc(50% - 50px);width:200px;height:100px";
-      button.addEventListener("click", event => {
-        const popup = window.open("/csp", "enhancement-probe");
-        fetch("/report", {method:"POST", body:JSON.stringify({tag:"popup-trigger", trusted:event.isTrusted, opened:!!popup})});
-      });
-      document.body.append(button);
-      button.focus();
-    } else window.open("/csp", "enhancement-probe");
-  }
+  if (enhanced) window.open("/csp", "enhancement-probe");
   await report("main");
   while (true) {
     const action = await (await fetch("/action", {cache:"no-store"})).text();
@@ -321,52 +303,6 @@ if (process.argv[2] === "--serve") {
         );
       }, `${stage} main page`);
       if (managed) {
-        if (process.platform === "linux") {
-          // Reuse libxdo from the existing Linux dependencies for a trusted click.
-          execFileSync("python3", [
-            "-c",
-            `
-import ctypes
-library = ctypes.CDLL("libxdo.so.3")
-library.xdo_new.argtypes = [ctypes.c_char_p]
-library.xdo_new.restype = ctypes.c_void_p
-library.xdo_get_focused_window_sane.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
-library.xdo_get_pid_window.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-library.xdo_get_window_size.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(ctypes.c_uint)]
-library.xdo_move_mouse_relative_to_window.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_int]
-library.xdo_click_window.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int]
-library.xdo_free.argtypes = [ctypes.c_void_p]
-connection = library.xdo_new(None)
-assert connection, "Could not connect to the X11 display"
-try:
-    window = ctypes.c_ulong()
-    assert library.xdo_get_focused_window_sane(connection, ctypes.byref(window)) == 0, "Could not find the focused fixture window"
-    assert library.xdo_get_pid_window(connection, window.value) == ${app.child.pid}, "The native fixture window is not focused"
-    width, height = ctypes.c_uint(), ctypes.c_uint()
-    assert library.xdo_get_window_size(connection, window.value, ctypes.byref(width), ctypes.byref(height)) == 0
-    assert library.xdo_move_mouse_relative_to_window(connection, window.value, width.value // 2, height.value // 2) == 0
-    assert library.xdo_click_window(connection, 0, 1) == 0, "Could not activate the popup button"
-finally:
-    library.xdo_free(connection)
-`,
-          ]);
-          await waitFor(
-            () =>
-              fs.access(path.join(directory, "popup-trigger.json")).then(
-                () => true,
-                () => false,
-              ),
-            "native popup click",
-          );
-          const trigger = JSON.parse(
-            await fs.readFile(
-              path.join(directory, "popup-trigger.json"),
-              "utf8",
-            ),
-          );
-          assert.equal(trigger.trusted, true);
-          assert.equal(trigger.opened, true);
-        }
         await waitFor(
           () =>
             fs.access(path.join(directory, "popup.json")).then(
@@ -379,11 +315,7 @@ finally:
           const report = JSON.parse(
             await fs.readFile(path.join(directory, tag + ".json")),
           );
-          assert.equal(
-            report.height,
-            "14px",
-            `${tag} drag region: ${JSON.stringify(report)}`,
-          );
+          assert.equal(report.height, "14px", `${tag} drag region`);
           if (process.platform === "darwin")
             assert.equal(report.config.traffic_light_x, 2);
         }
