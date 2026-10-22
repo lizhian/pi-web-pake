@@ -43,8 +43,13 @@ export function load({
   };
   const nativeOpen = mock.fn(() => (blocked ? null : popup));
   const listeners = [];
+  const attributes = new Set();
   const document = {
     baseURI: home,
+    documentElement: {
+      hasAttribute: (name) => attributes.has(name),
+      setAttribute: (name) => attributes.add(name),
+    },
     createElement: mock.fn(),
     addEventListener: (type, handler, capture) =>
       listeners.push({ type, handler, capture }),
@@ -63,15 +68,17 @@ export function load({
     isAuthLink: mock.fn((url) => url.includes("/auth/")),
   };
   window.top = frame ? {} : window;
-  runInNewContext(source, {
-    URL,
-    console: log,
-    navigator: { platform },
-    window,
-    document,
-    setTimeout: mock.fn(),
-    clearTimeout: mock.fn(),
-  });
+  const reinstall = () =>
+    runInNewContext(source, {
+      URL,
+      console: log,
+      navigator: { platform },
+      window,
+      document,
+      setTimeout: mock.fn(),
+      clearTimeout: mock.fn(),
+    });
+  reinstall();
   const click = (
     href = "/project",
     overrides = {},
@@ -115,5 +122,6 @@ export function load({
     listeners,
     log,
     click,
+    reinstall,
   };
 }

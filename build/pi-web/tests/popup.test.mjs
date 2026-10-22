@@ -5,7 +5,20 @@ import { load, origin, home } from "./fixtures/popup.mjs";
 const calls = (fn) => fn.mock.calls.map(({ arguments: args }) => args);
 
 test("opens an isolated popup directly once and paints the pending document black", () => {
-  const { window, nativeOpen, popup, popupDocument, document } = load();
+  const {
+    window,
+    nativeOpen,
+    popup,
+    popupDocument,
+    document,
+    listeners,
+    reinstall,
+  } = load();
+  const open = window.open;
+  const installedListeners = [...listeners];
+  reinstall();
+  assert.equal(window.open, open);
+  assert.deepEqual(listeners, installedListeners);
   assert.equal(
     window.open("/project", "report", "noopener,noreferrer,width=640"),
     null,
@@ -64,7 +77,8 @@ test("does not install outside the supported context", () => {
 });
 
 test("handles an ordinary isolated link once after page handlers", () => {
-  const { click, nativeOpen, popup } = load();
+  const { click, nativeOpen, popup, reinstall } = load();
+  reinstall();
   const event = click("/project", {}, {}, (_event, anchor) => {
     assert.equal(anchor.target, "_BLANK");
   });

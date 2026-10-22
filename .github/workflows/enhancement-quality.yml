@@ -52,10 +52,15 @@ jobs:
         if: runner.os == 'macOS'
         env:
           PAKE_PLAYWRIGHT_MODULE: ${{ runner.temp }}/pi-web-browser/node_modules/playwright/index.mjs
-        run: node --test build/pi-web/tests/titlebar.test.mjs
+        run: node --test build/pi-web/tests/titlebar.test.mjs build/pi-web/tests/file-open.test.mjs
       - name: Pi Web native popup acceptance
         if: runner.os == 'macOS'
         run: node build/pi-web/tests/native-popup.mjs
+      - name: Native opener permission acceptance
+        if: runner.os == 'macOS'
+        run: |
+          node tests/integration/ipc-security.mjs
+          node tests/integration/enhancement-open-path.mjs
       - name: Check workspace and feature compatibility
         working-directory: src-tauri
         run: |
@@ -72,7 +77,7 @@ jobs:
       - name: Verify packaged sources
         run: |
           npm pack --dry-run --ignore-scripts --json > "$RUNNER_TEMP/enhancement-pack.json"
-          node -e 'const files = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[0].files.map(f => f.path); for (const file of ["Cargo.toml", "src/lib.rs", "src/window.js"]) if (!files.includes("src-tauri/extensions/pake-enhancements/" + file)) throw new Error("Missing packaged enhancement: " + file)' "$RUNNER_TEMP/enhancement-pack.json"
+          node -e 'const files = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))[0].files.map(f => f.path); for (const file of ["Cargo.toml", "src/lib.rs", "src/window.js", "src/open_path.rs"]) if (!files.includes("src-tauri/extensions/pake-enhancements/" + file)) throw new Error("Missing packaged enhancement: " + file)' "$RUNNER_TEMP/enhancement-pack.json"
       - name: Native WebView acceptance
         if: runner.os != 'Linux'
         run: node tests/integration/managed-local-app.mjs

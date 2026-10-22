@@ -45,18 +45,30 @@
     > div:first-child {
     box-sizing: border-box;
     padding-left: 80px;
+  }
 
-    & > div:first-child {
-      height: 100%;
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open.right-panel-full-width
+    > div:first-child
+    > div:first-child {
+    height: 100%;
+  }
 
-      & > [role="tablist"] {
-        height: 100% !important;
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open.right-panel-full-width
+    > div:first-child
+    > div:first-child
+    > [role="tablist"] {
+    height: 100% !important;
+  }
 
-        & > [role="tab"]:first-child {
-          border-left: 1px solid var(--border);
-        }
-      }
-    }
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open.right-panel-full-width
+    > div:first-child
+    > div:first-child
+    > [role="tablist"]
+    > [role="tab"]:first-child {
+    border-left: 1px solid var(--border);
   }
 }
 
@@ -67,18 +79,30 @@
     > div:first-child {
     box-sizing: border-box;
     padding-left: 80px;
+  }
 
-    & > div:first-child {
-      height: 100%;
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open
+    > div:first-child
+    > div:first-child {
+    height: 100%;
+  }
 
-      & > [role="tablist"] {
-        height: 100% !important;
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open
+    > div:first-child
+    > div:first-child
+    > [role="tablist"] {
+    height: 100% !important;
+  }
 
-        & > [role="tab"]:first-child {
-          border-left: 1px solid var(--border);
-        }
-      }
-    }
+  html[data-pi-web-titlebar-adapter]
+    #file-panel.right-panel-open
+    > div:first-child
+    > div:first-child
+    > [role="tablist"]
+    > [role="tab"]:first-child {
+    border-left: 1px solid var(--border);
   }
 }
 
@@ -103,4 +127,46 @@
   html[data-pi-web-history-titlebar] #hamburger {
     top: 46px;
   }
+}
+/* Leave the existing mention/download controls to the left of system Open. */
+[data-pi-web-file-row] > button:not([data-pi-web-open]),
+[data-pi-web-file-row] > a[download] {
+  translate: -24px 0;
+}
+
+button[data-pi-web-open] {
+  box-sizing: border-box;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-pi-web-file-row]:hover > button[data-pi-web-open],
+[data-pi-web-file-row]:focus-within > button[data-pi-web-open],
+button[data-pi-web-open]:disabled {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+button[data-pi-web-open]:hover {
+  color: var(--text);
+}
+
+button[data-pi-web-open]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
 }

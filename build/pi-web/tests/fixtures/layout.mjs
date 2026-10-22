@@ -1,14 +1,6 @@
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-
-export const script = await fs.readFile(
-  new URL("../../scripts/pi-web-inject.js", import.meta.url),
-  "utf8",
-);
-const css = await fs.readFile(
-  new URL("../../scripts/pi-web-inject.css", import.meta.url),
-  "utf8",
-);
+import { script, css } from "./browser.mjs";
+export { script } from "./browser.mjs";
 
 export async function withPage(browser, options, run) {
   const page = await browser.newPage({

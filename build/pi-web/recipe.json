@@ -11,6 +11,7 @@
   "trafficLightX": "11",
   "trafficLightY": "16",
   "commonArgs": [
+    "--allow-open-path",
     "--new-window",
     "--enable-drag-drop",
     "--enable-find",

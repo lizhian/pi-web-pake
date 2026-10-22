@@ -1,4 +1,138 @@
 (() => {
+  const invoke = window.__TAURI__?.core?.invoke;
+  if (
+    typeof invoke !== "function" ||
+    window !== window.top ||
+    typeof MutationObserver !== "function"
+  )
+    return;
+
+  const installed = "data-pi-web-file-open-adapter";
+  if (document.documentElement.hasAttribute(installed)) return;
+  document.documentElement.setAttribute(installed, "");
+  const chinese = /^zh\b/i.test(
+    document.documentElement.lang || navigator.language,
+  );
+  const title = chinese ? "打开" : "Open";
+  const failure = chinese
+    ? "打开失败，请检查文件是否存在及默认打开方式。"
+    : "Could not open the item. Check that it exists and has a default application.";
+  let tree;
+  let frame = 0;
+
+  function itemPath(label) {
+    let path = label?.getAttribute("title") || "";
+    if (label?.hasAttribute("data-hidden-reason")) {
+      const end = path.lastIndexOf("\n");
+      if (end !== -1) path = path.slice(0, end);
+    }
+    return /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(path) ? path : null;
+  }
+
+  function update() {
+    frame = 0;
+    observer.disconnect();
+    try {
+      const sidebar = document.querySelector("#session-sidebar");
+      tree = sidebar?.querySelector(".sidebar-files-scroll");
+      if (!tree) return;
+      for (const label of tree.querySelectorAll("span[title]")) {
+        const row = label.parentElement;
+        if (
+          !itemPath(label) ||
+          row.querySelector(":scope > button[data-pi-web-open]")
+        )
+          continue;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.title = title;
+        button.setAttribute("aria-label", title);
+        button.setAttribute("data-pi-web-open", "");
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("width", "11");
+        svg.setAttribute("height", "11");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", "2.2");
+        svg.setAttribute("stroke-linecap", "round");
+        svg.setAttribute("stroke-linejoin", "round");
+        svg.setAttribute("aria-hidden", "true");
+        const shape = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        shape.setAttribute(
+          "d",
+          "M15 3h6v6m0-6L10 14M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4",
+        );
+        svg.append(shape);
+        button.append(svg);
+        button.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const path = itemPath(row.querySelector(":scope > span[title]"));
+          if (!path || button.disabled) return;
+          button.disabled = true;
+          try {
+            await invoke("plugin:opener|open_path", { path });
+          } catch (error) {
+            console.warn("[Pi Web file open] Could not open item:", error);
+            if (typeof window.pakeToast === "function")
+              window.pakeToast(failure);
+          } finally {
+            button.disabled = false;
+          }
+        });
+        row.setAttribute("data-pi-web-file-row", "");
+        row.append(button);
+      }
+    } finally {
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["title", "data-hidden-reason"],
+      });
+    }
+  }
+
+  function schedule() {
+    if (!frame) frame = requestAnimationFrame(update);
+  }
+  const observer = new MutationObserver((records) => {
+    if (
+      records.some(
+        ({ target, addedNodes, removedNodes }) =>
+          tree?.contains(target) ||
+          [...addedNodes, ...removedNodes].some(
+            (node) =>
+              node.nodeType === 1 &&
+              (node.matches("#session-sidebar, .sidebar-files-scroll") ||
+                node.querySelector("#session-sidebar, .sidebar-files-scroll")),
+          ),
+      )
+    )
+      schedule();
+  });
+  function start() {
+    update();
+  }
+  window.addEventListener("pagehide", () => {
+    observer.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+  });
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) start();
+  });
+  start();
+})();
+
+(() => {
   const platform =
     navigator.userAgentData?.platform ||
     navigator.platform ||
@@ -10,6 +144,9 @@
   )
     return;
 
+  const installed = "data-pi-web-popup-adapter";
+  if (document.documentElement.hasAttribute(installed)) return;
+  document.documentElement.setAttribute(installed, "");
   const originalOpen = window.open;
 
   function destinationFor(url, target) {

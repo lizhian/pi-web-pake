@@ -15,6 +15,21 @@ const resource = (relative) =>
   fileURLToPath(new URL(relative, import.meta.url));
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function waitForExit(child, timeout) {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return [child.exitCode, child.signalCode];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await once(child, "exit", { signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") return null;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 test(
   "native Pi Web popups load directly once, stay isolated and preserve the main URL",
   { skip: process.platform !== "darwin", timeout: 1_800_000 },
@@ -220,21 +235,22 @@ test(
         colorScheme: "dark",
       });
       finish = true;
-      const [exitCode] = await Promise.race([
-        once(app, "exit"),
-        delay(10_000).then(() => {
-          throw new Error(`App did not exit; logs: ${root}`);
-        }),
-      ]);
+      const exited = await waitForExit(app, 10_000);
+      assert.ok(exited, `App did not exit; logs: ${root}`);
+      const [exitCode] = exited;
       assert.equal(exitCode, 0);
       assert.deepEqual(errors, []);
       console.log(`Pi Web native acceptance passed; bundle and logs: ${root}`);
     } finally {
-      if (app && app.exitCode === null) {
+      if (app && app.exitCode === null && app.signalCode === null) {
         app.kill("SIGTERM");
-        await Promise.race([once(app, "exit"), delay(3000)]);
-        if (app.exitCode === null && app.signalCode === null)
+        if (!(await waitForExit(app, 3000))) {
           app.kill("SIGKILL");
+          assert.ok(
+            await waitForExit(app, 3000),
+            `App did not stop; logs: ${root}`,
+          );
+        }
       }
       pending?.destroy();
       server.closeAllConnections();

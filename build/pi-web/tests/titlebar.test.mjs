@@ -1,9 +1,8 @@
 // Run with Node and an installed Playwright. Optional runtime selectors:
 // PAKE_PLAYWRIGHT_MODULE / PAKE_BROWSER_EXECUTABLE.
 import assert from "node:assert/strict";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
+import { launchBrowser } from "./fixtures/browser.mjs";
 import {
   withPage,
   withExport,
@@ -14,24 +13,14 @@ import {
   script,
 } from "./fixtures/layout.mjs";
 
-const { chromium } = await import(
-  process.env.PAKE_PLAYWRIGHT_MODULE
-    ? pathToFileURL(path.resolve(process.env.PAKE_PLAYWRIGHT_MODULE)).href
-    : "playwright"
-);
 let browser;
 before(async () => {
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.PAKE_BROWSER_EXECUTABLE
-      ? { executablePath: process.env.PAKE_BROWSER_EXECUTABLE }
-      : {}),
-  });
+  browser = await launchBrowser();
 });
 after(async () => browser?.close());
 
-test("updates the main titlebar across sidebar states and replacement without duplicate injection", () =>
-  withPage(browser, {}, async (page) => {
+test("keeps titlebars usable across states, remounts, reinjection and sidebar transitions", async () => {
+  await withPage(browser, {}, async (page) => {
     assert.equal((await metrics(page)).gutter, 80);
     for (const width of [180, 260]) {
       await page.evaluate((width) => {
@@ -77,9 +66,7 @@ test("updates the main titlebar across sidebar states and replacement without du
     });
     await page.locator(".sidebar-new-button").click();
     assert.equal(await page.evaluate(() => window.clicked), true);
-  }));
-
-test("keeps titlebar controls clear of traffic lights throughout sidebar transitions", async () => {
+  });
   for (const tabs of [false, true]) {
     await withPage(browser, { tabs, closed: true }, async (page) => {
       assert.equal(
