@@ -187,6 +187,7 @@ test("respects native context and recovers across remounts, reinjection, path up
     await page.evaluate(() => {
       window.fail = false;
     });
+    await open.locator("..").hover();
     await open.click();
     assert.equal(await open.isDisabled(), true);
     await page.evaluate(() => window.finishOpen());

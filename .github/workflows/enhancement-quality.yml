@@ -66,11 +66,11 @@ jobs:
         run: |
           set -euo pipefail
           cargo fmt --all -- --check
-          for features in default managed-server runtime-template managed-server,runtime-template; do
-            flags=()
-            if [ "$features" != default ]; then flags=(--features "$features"); fi
-            cargo test --locked --workspace --lib "${flags[@]}"
-            cargo clippy --locked --workspace --all-targets "${flags[@]}" -- -D warnings
+          for features in "" managed-server runtime-template managed-server,runtime-template; do
+            echo "::group::Cargo features: ${features:-default}"
+            cargo test --locked --workspace --lib --features "$features"
+            cargo clippy --locked --workspace --all-targets --features "$features" -- -D warnings
+            echo "::endgroup::"
           done
           cargo tree --locked -p pake-enhancements -e normal > "$RUNNER_TEMP/enhancement-dependencies.txt"
           node -e 'if (require("fs").readFileSync(process.argv[1], "utf8").includes("tauri-plugin-dialog")) throw new Error("Ordinary builds enable dialog")' "$RUNNER_TEMP/enhancement-dependencies.txt"
