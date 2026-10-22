@@ -246,8 +246,8 @@
   let sidebarHeader;
   let mainHeader;
   let layout;
-  let activeHeader;
   let frame = 0;
+  const adaptedHeaders = new Set();
   const observed = new Set();
   const resizeObserver = new ResizeObserver(schedule);
   const mutationObserver = new MutationObserver((records) => {
@@ -330,53 +330,65 @@
     frame = 0;
     discover();
     observeSizes();
-    const expanded = sidebar?.classList.contains("sidebar-open");
-    const next = expanded ? sidebarHeader : mainHeader;
-    const rect = next?.getBoundingClientRect();
+    const rect = layout?.getBoundingClientRect();
     // Exported history and unrelated pages do not have this app structure.
     const eligible =
       sidebarHeader &&
       mainHeader &&
       rect?.width > 0 &&
       Math.abs(rect.left) <= 1 &&
-      Math.abs(rect.top) <= 1;
-    const header = eligible ? next : null;
-    if (activeHeader !== header) {
-      activeHeader?.removeAttribute(marker);
-      activeHeader?.style.removeProperty(gutterProperty);
-      activeHeader = header;
+      Math.abs(rect.top) <= 1 &&
+      Math.abs(sidebarHeader.getBoundingClientRect().top) <= 1 &&
+      Math.abs(mainHeader.getBoundingClientRect().top) <= 1;
+    const headers = eligible ? [sidebarHeader, mainHeader] : [];
+    for (const header of adaptedHeaders) {
+      if (headers.includes(header)) continue;
+      header.removeAttribute(marker);
+      header.style.removeProperty(gutterProperty);
+      adaptedHeaders.delete(header);
     }
-    if (!header) return;
-    const kind = header === sidebarHeader ? "sidebar" : "main";
-    if (header.getAttribute(marker) !== kind) header.setAttribute(marker, kind);
+    // Commit the initial gutter before enabling the sidebar's matching animation.
+    const initialMain = eligible && !adaptedHeaders.has(mainHeader);
+    if (initialMain)
+      mainHeader.style.setProperty("--pi-web-titlebar-transition", "none");
+    for (const header of headers) {
+      const kind = header === sidebarHeader ? "sidebar" : "main";
+      adaptedHeaders.add(header);
+      if (header.getAttribute(marker) !== kind)
+        header.setAttribute(marker, kind);
 
-    let gutter = 80;
-    if (kind === "sidebar" && header.dataset.fit === "2") {
-      // At Pi Web's smallest fitting state, give the existing controls priority.
-      // Their measured widths include tab counts, current fonts and locale.
-      let controlsWidth = 0;
-      for (const child of header.children) {
-        if (child.matches(".sidebar-header-spacer")) continue;
-        const style = getComputedStyle(child);
-        if (style.display === "none") continue;
-        controlsWidth +=
-          child.getBoundingClientRect().width +
-          (parseFloat(style.marginLeft) || 0) +
-          (parseFloat(style.marginRight) || 0);
+      let gutter = 80;
+      if (kind === "sidebar" && header.dataset.fit === "2") {
+        // At Pi Web's smallest fitting state, give the existing controls priority.
+        // Their measured widths include tab counts, current fonts and locale.
+        let controlsWidth = 0;
+        for (const child of header.children) {
+          if (child.matches(".sidebar-header-spacer")) continue;
+          const style = getComputedStyle(child);
+          if (style.display === "none") continue;
+          controlsWidth +=
+            child.getBoundingClientRect().width +
+            (parseFloat(style.marginLeft) || 0) +
+            (parseFloat(style.marginRight) || 0);
+        }
+        const rightPadding =
+          parseFloat(getComputedStyle(header).paddingRight) || 0;
+        gutter = Math.max(
+          0,
+          Math.min(
+            80,
+            Math.floor(header.clientWidth - rightPadding - controlsWidth),
+          ),
+        );
       }
-      const rightPadding =
-        parseFloat(getComputedStyle(header).paddingRight) || 0;
-      gutter = Math.max(
-        0,
-        Math.min(
-          80,
-          Math.floor(header.clientWidth - rightPadding - controlsWidth),
-        ),
-      );
+      const value = `${gutter}px`;
+      if (header.style.getPropertyValue(gutterProperty) !== value)
+        header.style.setProperty(gutterProperty, value);
     }
-    const value = `${gutter}px`;
-    if (header.style.getPropertyValue(gutterProperty) !== value)
-      header.style.setProperty(gutterProperty, value);
+    if (initialMain) {
+      mainHeader.getBoundingClientRect();
+      mainHeader.style.removeProperty("--pi-web-titlebar-transition");
+    }
   }
 
   function start() {

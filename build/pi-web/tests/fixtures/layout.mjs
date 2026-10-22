@@ -20,11 +20,14 @@ export async function withPage(browser, options, run) {
     await page.addStyleTag({
       // Relevant Pi Web 0.12.2 rules; its fitting algorithm is retained below.
       content: `
+        :root { --border:#444; --bg-panel:#222; --bg:#1a1a1a; }
         body { margin: 0; font: 12px Arial; }
         button { font: inherit; }
         #layout { display: flex; height: 700px; }
-        #session-sidebar { width: 260px; flex: none; }
-        #session-sidebar.sidebar-closed { width: 0; overflow: hidden; }
+        #session-sidebar { width:var(--sidebar-width,260px); min-width:var(--sidebar-width,260px);
+          flex:none; overflow:hidden; transition:width .2s,min-width .2s; }
+        #session-sidebar.sidebar-closed { width:0; min-width:0; }
+        #session-sidebar > * { width:var(--sidebar-width,260px); min-width:var(--sidebar-width,260px); }
         .sidebar-header { height: 36px; box-sizing: border-box; border-bottom: 1px solid; }
         .sidebar-header, .sidebar-tabs-list { display: flex; flex: none; align-items: stretch; }
         .sidebar-brand { flex: none; align-self: center; min-width: 6ch; margin: 0 0 0 7px;
@@ -123,7 +126,7 @@ export async function withPage(browser, options, run) {
         "div",
         {
           id: "session-sidebar",
-          class: "sidebar-container sidebar-open",
+          class: `sidebar-container sidebar-${options.closed ? "closed" : "open"}`,
         },
         [make("div", { class: "session-sidebar" }, [header])],
       );
@@ -159,7 +162,7 @@ export async function withPage(browser, options, run) {
         const rail = make("div", {
           role: "tablist",
           style:
-            "display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden;height:36px;",
+            "display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden;height:36px;background:var(--bg-panel);",
         });
         for (let index = 0; index < 2; index++) {
           const label = index === 1 ? "Terminal" : `file-${index}.ts`;
@@ -173,8 +176,7 @@ export async function withPage(browser, options, run) {
               role: "tab",
               "aria-label": label,
               "aria-selected": String(index === 0),
-              style:
-                "display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;min-width:80px;max-width:180px;flex-shrink:0;white-space:nowrap;",
+              style: `display:flex;align-items:center;gap:6px;padding:0 6px 0 12px;min-width:80px;max-width:180px;flex-shrink:0;white-space:nowrap;border-right:1px solid var(--border);background:var(--${index === 0 ? "bg" : "bg-panel"});`,
             },
             [make("span", { text: label }), close],
           );
@@ -205,7 +207,7 @@ export async function withPage(browser, options, run) {
           "div",
           {
             style:
-              "display:flex;align-items:center;flex-shrink:0;height:36px;border-bottom:1px solid;",
+              "display:flex;align-items:center;flex-shrink:0;height:36px;border-bottom:1px solid var(--border);background:var(--bg-panel);",
           },
           [
             make("div", { style: "flex:1;overflow:hidden;" }, [rail]),
@@ -280,6 +282,8 @@ export async function withPage(browser, options, run) {
       window.fixture.initialFileGutter = window.fixture.fileHeader
         ? getComputedStyle(window.fixture.fileHeader).paddingLeft
         : null;
+      window.fixture.initialMainButtonLeft =
+        window.fixture.toolbar.firstElementChild.getBoundingClientRect().left;
     }, script);
     await settle(page);
     await run(page);
@@ -292,7 +296,7 @@ export async function withPage(browser, options, run) {
 export async function settle(page) {
   // Allow both the upstream fitting observer and adapter to settle, then assert
   // stability. A single animation frame cannot detect observer feedback loops.
-  await page.waitForTimeout(100);
+  await page.waitForTimeout(250);
   const first = await metrics(page);
   await page.waitForTimeout(100);
   assert.deepEqual(await metrics(page), first);
@@ -301,10 +305,12 @@ export async function settle(page) {
 export async function metrics(page) {
   return page.evaluate(() => {
     const { header, toolbar, brand, sidebar } = window.fixture;
-    const active = document.querySelector("[data-pi-web-titlebar]");
+    const active = sidebar.classList.contains("sidebar-open")
+      ? header
+      : toolbar;
     return {
       kind: active?.getAttribute("data-pi-web-titlebar") || null,
-      gutter: active ? parseFloat(getComputedStyle(active).paddingLeft) : 0,
+      gutter: parseFloat(getComputedStyle(active).paddingLeft),
       height: active?.getBoundingClientRect().height,
       sidebarWidth: sidebar.getBoundingClientRect().width,
       brand: brand.isConnected && getComputedStyle(brand).display !== "none",
@@ -330,7 +336,16 @@ export async function fileMetrics(page) {
         .getBoundingClientRect().left,
       closeRight: fileHeader.lastElementChild.getBoundingClientRect().right,
       railLeft: rail.getBoundingClientRect().left,
+      railTop: rail.getBoundingClientRect().top,
+      railBottom: rail.getBoundingClientRect().bottom,
       railWidth: rail.clientWidth,
+      tabLeftBorders: Array.from(
+        rail.children,
+        (tab) => getComputedStyle(tab).borderLeftWidth,
+      ),
+      containerLeftBorders: [fileHeader, rail.parentElement, rail].map(
+        (element) => getComputedStyle(element).borderLeftWidth,
+      ),
     };
   });
 }

@@ -1,10 +1,36 @@
-/* Only the top-left main-app header receives this marker from the adapter. */
+/* Prefer native scrollbars and their system-controlled visibility. */
+@media screen {
+  * {
+    scrollbar-width: thin !important;
+    scrollbar-color: auto !important;
+  }
+}
+
+/* Keep both headers adapted while the sidebar slides over its fixed-width contents. */
 [data-pi-web-titlebar] {
   --pi-web-titlebar-gutter: 80px;
   box-sizing: border-box !important;
   height: 36px !important;
   flex-wrap: nowrap !important;
   padding-left: var(--pi-web-titlebar-gutter) !important;
+}
+
+[data-pi-web-titlebar="main"] {
+  transition: var(--pi-web-titlebar-transition, padding-left 0.2s);
+}
+
+#session-sidebar.sidebar-open ~ * [data-pi-web-titlebar="main"] {
+  padding-left: 0 !important;
+}
+
+[data-pi-web-titlebar="sidebar"]
+  > .sidebar-tabs-list
+  > .sidebar-tab:first-child,
+#session-sidebar.sidebar-closed
+  ~ *
+  [data-pi-web-titlebar="main"]
+  > button:first-child {
+  border-left: 1px solid var(--border) !important;
 }
 
 /* Let Pi Web's own measured fitting states decide when to hide the brand. */
@@ -19,6 +45,18 @@
     > div:first-child {
     box-sizing: border-box;
     padding-left: 80px;
+
+    & > div:first-child {
+      height: 100%;
+
+      & > [role="tablist"] {
+        height: 100% !important;
+
+        & > [role="tab"]:first-child {
+          border-left: 1px solid var(--border);
+        }
+      }
+    }
   }
 }
 
@@ -29,6 +67,18 @@
     > div:first-child {
     box-sizing: border-box;
     padding-left: 80px;
+
+    & > div:first-child {
+      height: 100%;
+
+      & > [role="tablist"] {
+        height: 100% !important;
+
+        & > [role="tab"]:first-child {
+          border-left: 1px solid var(--border);
+        }
+      }
+    }
   }
 }
 
@@ -37,6 +87,15 @@
   html[data-pi-web-history-titlebar] #app > #sidebar {
     box-sizing: border-box;
     padding-top: 36px;
+  }
+
+  html[data-pi-web-history-titlebar] #app > #sidebar > .sidebar-header,
+  html[data-pi-web-history-titlebar]
+    #app
+    > #sidebar
+    > .sidebar-header
+    > .sidebar-controls {
+    padding-top: 0;
   }
 }
 
