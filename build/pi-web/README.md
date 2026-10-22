@@ -60,7 +60,7 @@ PAKE_BUILD_APP=pi-web PAKE_BUILD_PLATFORM=macos PAKE_BUILD_ARCH=arm64 \
 
 ## 核心测试
 
-专项测试独立于上游测试，由 Enhancement Compatibility 工作流运行，保留 8 个快速用例、7 个浏览器用例（5 个标题栏／历史布局、2 个文件打开）和 1 个原生场景：
+专项测试独立于上游测试，可按需手动运行，保留 8 个快速用例、7 个浏览器用例（5 个标题栏／历史布局、2 个文件打开）和 1 个原生场景：
 
 ```bash
 # 8 fast cases: isolation, proxies, delegation, contexts, links and failures
@@ -78,4 +78,4 @@ PAKE_PLAYWRIGHT_MODULE="$PI_WEB_TEST_RUNTIME/node_modules/playwright/index.mjs" 
 node build/pi-web/tests/native-popup.mjs
 ```
 
-测试资源相对脚本自身读取。浏览器和原生验收仅在 macOS CI 上执行；快速用例在所有增强兼容性平台执行。原生场景在临时目录使用同一配方的完整功能参数构建、运行应用，替换服务地址和身份为隔离夹具，不安装到 Applications。构建产物和诊断日志的位置会打印在输出中。
+测试资源相对脚本自身读取。浏览器和原生验收在 macOS 上执行；快速用例可跨平台运行。原生场景在临时目录使用同一配方的完整功能参数构建、运行应用，替换服务地址和身份为隔离夹具，不安装到 Applications。构建产物和诊断日志的位置会打印在输出中。

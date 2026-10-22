@@ -53,4 +53,4 @@ node tests/integration/ipc-security.mjs
 node tests/integration/enhancement-open-path.mjs
 ```
 
-Enhancement Compatibility 工作流在 macOS、Linux、Windows x64 和 Windows ARM64 上执行四种 feature 组合的测试、Clippy 和原生验收；ARM64 任务还检查实际 MSI 的平台元数据。Linux 原生验收使用 Xvfb 和 D-Bus 会话。
+上述检查可按需手动执行。Linux 原生验收使用 Xvfb 和 D-Bus 会话。

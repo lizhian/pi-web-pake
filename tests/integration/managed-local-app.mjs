@@ -7,7 +7,6 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { verifyBuildOutput } from "../helpers/build-output.js";
 
 const script = fileURLToPath(import.meta.url);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -188,7 +187,7 @@ if (process.argv[2] === "--serve") {
         await waitFor(() => listening(port), "ordinary fixture server");
       }
       const identifier = `com.pake.enhancement-${stage}-${process.pid}`;
-      const name = `pake-probe-${stage}`;
+      const name = `PakeProbe-${stage}`;
       const args = [
         cli,
         url,
@@ -203,8 +202,6 @@ if (process.argv[2] === "--serve") {
         "false",
       ];
       if (process.platform === "darwin") args.push("--targets", "app");
-      else if (process.platform === "win32")
-        args.push("--targets", process.arch, "--keep-binary");
       else args.push("--no-bundle");
       if (managed) {
         const command = [
@@ -238,12 +235,11 @@ if (process.argv[2] === "--serve") {
         else args.push("--hide-window-decorations");
       }
       console.log(`Building ${stage} native fixture...`);
-      const stdout = await run(process.execPath, args, {
-        cwd: directory,
-        env: process.env,
-      });
-      const result = JSON.parse(stdout);
+      const result = JSON.parse(
+        await run(process.execPath, args, { cwd: directory, env: process.env }),
+      );
       assert.equal(result.ok, true);
+      assert.equal(result.outputs.length, 1);
       const expected = path.join(
         directory,
         name +
@@ -251,15 +247,12 @@ if (process.argv[2] === "--serve") {
             ? ".app"
             : process.platform === "win32"
               ? ".exe"
-              : "-binary"),
+              : ""),
       );
-      const expectedOutputs =
-        process.platform === "win32"
-          ? [expected, path.join(directory, `${name}.msi`)]
-          : [expected];
-      assert.equal(result.outputs.length, expectedOutputs.length);
-      for (const artifact of expectedOutputs)
-        verifyBuildOutput(0, stdout, artifact);
+      assert.equal(
+        await fs.realpath(result.outputs[0].path),
+        await fs.realpath(expected),
+      );
       let executable = expected;
       if (process.platform === "darwin") {
         const binary = execFileSync(

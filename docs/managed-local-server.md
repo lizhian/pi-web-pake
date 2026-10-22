@@ -53,4 +53,4 @@ node tests/integration/ipc-security.mjs
 node tests/integration/enhancement-open-path.mjs
 ```
 
-The Enhancement Compatibility workflow runs the four feature configurations and Clippy on macOS, Linux, Windows x64 and Windows ARM64, then runs the native fixture. The ARM64 job also verifies a real MSI's platform metadata. Linux native acceptance uses Xvfb and a D-Bus session.
+Run these checks manually as needed. Linux native acceptance uses Xvfb and a D-Bus session.
