@@ -27,7 +27,6 @@ node dist/cli.js http://127.0.0.1:30141 \
   --enable-find \
   --safe-domain 127.0.0.1:30141 \
   --wasm --camera --microphone \
-  --debug \
   --inject build/pi-web/scripts/pi-web-inject.css,build/pi-web/scripts/pi-web-inject.js \
   --iterative-build \
   --install \
