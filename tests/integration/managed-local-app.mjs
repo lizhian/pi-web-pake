@@ -39,12 +39,15 @@ if (process.argv[2] === "--serve") {
         response.setHeader("content-type", "application/javascript");
         response.end(`
 (async () => {
+  const errors = [];
+  addEventListener("error", event => errors.push(event.message));
   if (document.readyState === "loading") await new Promise(resolve => addEventListener("DOMContentLoaded", resolve, {once:true}));
   await new Promise(resolve => setTimeout(resolve, 200));
   const current = window.__TAURI__.window.getCurrentWindow();
   const report = async tag => fetch("/report", {method:"POST", body:JSON.stringify({tag,
     height: document.getElementById("pake-top-dom") ? getComputedStyle(document.getElementById("pake-top-dom")).height : null,
-    config: window.pakeConfig, label: current.label
+    config: window.pakeConfig, label: current.label, errors,
+    platform: navigator.platform, userAgent: navigator.userAgent
   })});
   await window.__TAURI__.core.invoke("set_zoom", {percent:100});
   const enhanced = window.pakeConfig.drag_region_height === 14;
@@ -315,7 +318,11 @@ if (process.argv[2] === "--serve") {
           const report = JSON.parse(
             await fs.readFile(path.join(directory, tag + ".json")),
           );
-          assert.equal(report.height, "14px", `${tag} drag region`);
+          assert.equal(
+            report.height,
+            "14px",
+            `${tag} drag region: ${JSON.stringify(report)}`,
+          );
           if (process.platform === "darwin")
             assert.equal(report.config.traffic_light_x, 2);
         }
