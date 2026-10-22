@@ -1,30 +1,16 @@
-// Run with Node and an installed Playwright. Optional runtime selectors:
-// PAKE_PLAYWRIGHT_MODULE / PAKE_BROWSER_EXECUTABLE.
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-import { after, before, test } from "node:test";
 
-const script = await fs.readFile("scripts/pi-web-inject.js", "utf8");
-const css = await fs.readFile("scripts/pi-web-inject.css", "utf8");
-const { chromium } = await import(
-  process.env.PAKE_PLAYWRIGHT_MODULE
-    ? pathToFileURL(path.resolve(process.env.PAKE_PLAYWRIGHT_MODULE)).href
-    : "playwright"
+export const script = await fs.readFile(
+  new URL("../../scripts/pi-web-inject.js", import.meta.url),
+  "utf8",
 );
-let browser;
-before(async () => {
-  browser = await chromium.launch({
-    headless: true,
-    ...(process.env.PAKE_BROWSER_EXECUTABLE
-      ? { executablePath: process.env.PAKE_BROWSER_EXECUTABLE }
-      : {}),
-  });
-});
-after(async () => browser?.close());
+const css = await fs.readFile(
+  new URL("../../scripts/pi-web-inject.css", import.meta.url),
+  "utf8",
+);
 
-async function withPage(options, run) {
+export async function withPage(browser, options, run) {
   const page = await browser.newPage({
     viewport: { width: 1000, height: 700 },
   });
@@ -175,7 +161,7 @@ async function withPage(options, run) {
           style:
             "display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden;height:36px;",
         });
-        for (let index = 0; index < 14; index++) {
+        for (let index = 0; index < 2; index++) {
           const label = index === 1 ? "Terminal" : `file-${index}.ts`;
           const close = make("button", {
             "aria-label": `Close ${label}`,
@@ -303,7 +289,7 @@ async function withPage(options, run) {
   }
 }
 
-async function settle(page) {
+export async function settle(page) {
   // Allow both the upstream fitting observer and adapter to settle, then assert
   // stability. A single animation frame cannot detect observer feedback loops.
   await page.waitForTimeout(100);
@@ -312,7 +298,7 @@ async function settle(page) {
   assert.deepEqual(await metrics(page), first);
 }
 
-async function metrics(page) {
+export async function metrics(page) {
   return page.evaluate(() => {
     const { header, toolbar, brand, sidebar } = window.fixture;
     const active = document.querySelector("[data-pi-web-titlebar]");
@@ -331,134 +317,7 @@ async function metrics(page) {
   });
 }
 
-test("reserves 80px once and preserves the wide brand and buttons", () =>
-  withPage({}, async (page) => {
-    assert.equal(await page.evaluate(() => window.fixture.initialGutter), 80);
-    assert.deepEqual(await metrics(page), {
-      kind: "sidebar",
-      gutter: 80,
-      height: 36,
-      sidebarWidth: 260,
-      brand: true,
-      fit: "0",
-      overflow: false,
-      mainPadding: 0,
-      firstButton: 87,
-    });
-    await page.locator(".sidebar-new-button").evaluate((button) => {
-      button.addEventListener("click", () => {
-        window.clicked = true;
-      });
-    });
-    await page.locator(".sidebar-new-button").click();
-    assert.equal(await page.evaluate(() => window.clicked), true);
-  }));
-
-test("hides the brand at the existing compact state and restores it on resize", () =>
-  withPage({}, async (page) => {
-    for (const width of [220, 180, 300, 200, 260]) {
-      await page.evaluate((width) => {
-        window.fixture.sidebar.style.width = `${width}px`;
-      }, width);
-      await settle(page);
-      const result = await metrics(page);
-      assert.equal(result.gutter, 80);
-      assert.equal(result.overflow, false);
-      assert.equal(result.brand, width >= 260);
-    }
-  }));
-
-test("keeps compact tabs usable at 180px and restores the full gutter", () =>
-  withPage({ tabs: true }, async (page) => {
-    for (const width of [400, 260, 180, 190, 230, 400]) {
-      await page.evaluate((width) => {
-        window.fixture.sidebar.style.width = `${width}px`;
-      }, width);
-      await settle(page);
-      const result = await metrics(page);
-      assert.equal(result.overflow, false);
-      assert.ok(result.gutter >= 0 && result.gutter <= 80);
-      assert.equal(await page.locator(".sidebar-tab").count(), 2);
-      if (width === 180) assert.ok(result.gutter < 80);
-      if (width === 400) assert.equal(result.gutter, 80);
-    }
-  }));
-
-test("moves the gutter to the main toolbar on collapse without duplication", () =>
-  withPage({}, async (page) => {
-    for (const expanded of [false, true, false, true]) {
-      await page.evaluate((expanded) => {
-        window.fixture.sidebar.className = `sidebar-container sidebar-${expanded ? "open" : "closed"}`;
-      }, expanded);
-      await settle(page);
-      const result = await metrics(page);
-      assert.equal(result.kind, expanded ? "sidebar" : "main");
-      assert.equal(result.mainPadding, expanded ? 0 : 80);
-      assert.equal(await page.locator("[data-pi-web-titlebar]").count(), 1);
-      if (!expanded) assert.equal(result.firstButton, 80);
-    }
-  }));
-
-test("rebinds after React replaces the sidebar header", () =>
-  withPage({}, async (page) => {
-    await page.evaluate(() => {
-      const old = window.fixture.header;
-      const replacement = old.cloneNode(true);
-      replacement.removeAttribute("data-pi-web-titlebar");
-      replacement.style.removeProperty("--pi-web-titlebar-gutter");
-      old.replaceWith(replacement);
-      window.fixture.header = replacement;
-    });
-    await settle(page);
-    assert.equal((await metrics(page)).kind, "sidebar");
-    assert.equal(await page.locator("[data-pi-web-titlebar]").count(), 1);
-  }));
-
-test("ignores exported history headers and unknown main toolbar structures", () =>
-  withPage({}, async (page) => {
-    await page.evaluate(() => {
-      window.fixture.main.replaceChildren();
-    });
-    await settle(page);
-    assert.equal((await metrics(page)).kind, null);
-    await page.evaluate(() => {
-      window.fixture.sidebar.id = "export-sidebar";
-      const exportHeader = document.createElement("div");
-      exportHeader.className = "sidebar-header";
-      document.body.append(exportHeader);
-    });
-    await settle(page);
-    assert.equal(await page.locator("[data-pi-web-titlebar]").count(), 0);
-  }));
-
-for (const options of [
-  { platform: "Win32" },
-  { platform: "Linux x86_64" },
-  { hidden: false },
-]) {
-  test(`leaves unsupported contexts unchanged: ${JSON.stringify(options)}`, () =>
-    withPage(options, async (page) => {
-      const result = await metrics(page);
-      assert.equal(result.kind, null);
-      assert.equal(result.gutter, 0);
-      assert.equal(result.brand, true);
-    }));
-}
-
-test("does not install twice or react to unrelated chat updates", () =>
-  withPage({}, async (page) => {
-    await page.evaluate(script);
-    const before = await metrics(page);
-    await page.evaluate(() => {
-      const chat = document.createElement("div");
-      window.fixture.main.append(chat);
-      for (let i = 0; i < 200; i++) chat.append(document.createElement("span"));
-    });
-    await settle(page);
-    assert.deepEqual(await metrics(page), before);
-  }));
-
-async function fileMetrics(page) {
+export async function fileMetrics(page) {
   return page.evaluate(() => {
     const { filePanel, fileHeader } = window.fixture;
     const rail = fileHeader.querySelector('[role="tablist"]');
@@ -476,99 +335,179 @@ async function fileMetrics(page) {
   });
 }
 
-test("reserves 80px on the first full-width file-panel layout without moving content or actions", () =>
-  withPage({ filePanel: true, fullWidth: true }, async (page) => {
-    assert.equal(
-      await page.evaluate(() => window.fixture.initialFileGutter),
-      "80px",
-    );
-    const before = await page.evaluate(() => window.fixture.fileBaseline);
-    const result = await fileMetrics(page);
-    assert.equal(result.padding, 80);
-    assert.equal(result.header.height, 36);
-    assert.equal(result.railLeft, 80);
-    assert.equal(result.railWidth, before.railWidth - 80);
-    assert.deepEqual(result.header, before.header);
-    assert.deepEqual(result.content, before.content);
-    assert.equal(result.actionsLeft, before.actionsLeft);
-  }));
-
-test("removes file-panel padding on restore or close and never accumulates it on reopen", () =>
-  withPage({ filePanel: true }, async (page) => {
-    for (let iteration = 0; iteration < 3; iteration++) {
-      assert.equal((await fileMetrics(page)).padding, 0);
-      await page
-        .getByRole("button", { name: "Expand file panel", exact: true })
-        .click();
-      assert.equal((await fileMetrics(page)).padding, 80);
-      await page
-        .getByRole("button", { name: "Hide file panel", exact: true })
-        .click();
-      assert.equal((await fileMetrics(page)).padding, 0);
+export async function withExport(browser, options, run) {
+  const page = await browser.newPage({
+    viewport: { width: options.width || 1200, height: 700 },
+  });
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  try {
+    let target = page;
+    if (options.frame) {
       await page.evaluate(() => {
-        const panel = window.fixture.filePanel;
-        panel.classList.replace("right-panel-closed", "right-panel-open");
+        const frame = document.createElement("iframe");
+        frame.style.cssText = "width:100%;height:700px;border:0";
+        document.body.style.margin = "0";
+        document.body.append(frame);
       });
-      assert.equal((await fileMetrics(page)).padding, 80);
-      await page
-        .getByRole("button", { name: "Expand file panel", exact: true })
-        .click();
-      assert.equal((await fileMetrics(page)).padding, 0);
+      target = page.frames().find((frame) => frame !== page.mainFrame());
     }
-  }));
+    await target.addStyleTag({
+      // Relevant rules from pi-coding-agent's static session export template.
+      content: `
+        * { margin:0; padding:0; box-sizing:border-box; }
+        :root { --sidebar-width:400px; }
+        body { font:12px/18px monospace; }
+        #app { display:flex; min-height:100vh; }
+        #sidebar {
+          width:var(--sidebar-width); min-width:var(--sidebar-width); max-width:var(--sidebar-width);
+          flex-shrink:0; display:flex; flex-direction:column; position:sticky; top:0;
+          height:100vh; border-right:1px solid;
+        }
+        #sidebar-resizer { width:6px; flex-shrink:0; position:sticky; top:0; height:100vh; }
+        .sidebar-header { padding:8px 12px; flex-shrink:0; }
+        .sidebar-controls { padding:8px 8px 4px; }
+        .sidebar-search { width:100%; padding:4px 8px; border:1px solid; font:11px monospace; }
+        .sidebar-filters { display:flex; padding:4px 8px 8px; gap:4px; align-items:center; flex-wrap:wrap; }
+        .filter-btn { padding:3px 8px; border:1px solid; font:10px monospace; }
+        .sidebar-close { display:none; margin-left:auto; }
+        .tree-container { flex:1; overflow:auto; padding:4px 0; }
+        .tree-status { flex-shrink:0; padding:4px 12px; }
+        #content { flex:1; min-width:0; overflow-y:auto; padding:18px 36px; }
+        #hamburger { display:none; position:fixed; top:10px; left:10px; z-index:100; }
+        #sidebar-overlay { display:none; position:fixed; inset:0; z-index:98; }
+        @media (max-width:900px) {
+          #sidebar { position:fixed; left:0; top:0; bottom:0; height:100vh; z-index:99;
+            width:min(var(--sidebar-width),100vw); min-width:min(var(--sidebar-width),100vw);
+            max-width:min(var(--sidebar-width),100vw); transform:translateX(-100%); }
+          #sidebar.open { transform:translateX(0); }
+          #sidebar-resizer { display:none; }
+          #sidebar-overlay.open { display:block; }
+          #hamburger, .sidebar-close { display:block; }
+          #content { padding:18px 16px; }
+        }
+        @media print { #sidebar, #sidebar-resizer { display:none !important; } }
+      `,
+    });
+    await target.evaluate((options) => {
+      Object.defineProperty(navigator, "platform", {
+        value: options.platform || "MacIntel",
+      });
+      window.pakeConfig = { hide_title_bar: options.hidden !== false };
+      const make = (tag, attrs = {}, children = []) => {
+        const node = document.createElement(tag);
+        for (const [key, value] of Object.entries(attrs)) {
+          if (key === "text") node.textContent = value;
+          else node.setAttribute(key, value);
+        }
+        node.append(...children);
+        return node;
+      };
+      const search = make("input", {
+        id: "tree-search",
+        class: "sidebar-search",
+        placeholder: "Search...",
+      });
+      const close = make("button", {
+        id: "sidebar-close",
+        class: "sidebar-close",
+        text: "Close",
+      });
+      const filters = make("div", { class: "sidebar-filters" }, [
+        ...["Default", "No-tools", "User", "Labeled", "All"].map((text) =>
+          make("button", { class: "filter-btn", text }),
+        ),
+        close,
+      ]);
+      const header = make("div", { class: "sidebar-header" }, [
+        make("div", { class: "sidebar-controls" }, [search]),
+        filters,
+      ]);
+      const tree = make(
+        "div",
+        { id: "tree-container", class: "tree-container" },
+        Array.from({ length: 160 }, (_, i) =>
+          make("div", { text: `Entry ${i}` }),
+        ),
+      );
+      const sidebar = make("aside", { id: "sidebar" }, [
+        header,
+        tree,
+        make("div", { class: "tree-status", text: "160 / 160 entries" }),
+      ]);
+      const messages = make("div", { id: "messages", text: "Message content" });
+      const content = make("main", { id: "content" }, [messages]);
+      const hamburger = make("button", {
+        id: "hamburger",
+        text: "Open sidebar",
+      });
+      const overlay = make("div", { id: "sidebar-overlay" });
+      document.body.append(
+        hamburger,
+        overlay,
+        make("div", { id: "app" }, [
+          sidebar,
+          make("div", { id: "sidebar-resizer" }),
+          content,
+        ]),
+      );
+      const events = [];
+      // These listeners check that the adapter leaves the page's controls live.
+      search.addEventListener("input", () => events.push(search.value));
+      filters.addEventListener("click", (event) =>
+        events.push(event.target.textContent),
+      );
+      hamburger.addEventListener("click", () => {
+        sidebar.classList.add("open");
+        overlay.classList.add("open");
+        hamburger.style.display = "none";
+      });
+      const closeSidebar = () => {
+        sidebar.classList.remove("open");
+        overlay.classList.remove("open");
+        hamburger.style.display = "";
+      };
+      close.addEventListener("click", closeSidebar);
+      overlay.addEventListener("click", closeSidebar);
+      window.fixture = { events };
+    }, options);
+    if (options.missingMessages)
+      await target.locator("#messages").evaluate((node) => node.remove());
+    const baseline = await historyMetrics(target);
+    await target.addStyleTag({ content: css });
+    // Take the measurement in the same task, before a scheduled animation frame.
+    const initial = await target.evaluate((source) => {
+      (0, eval)(source);
+      return getComputedStyle(document.querySelector("#sidebar")).paddingTop;
+    }, script);
+    await run(target, baseline, initial, page);
+    assert.deepEqual(errors, []);
+  } finally {
+    await page.close();
+  }
+}
 
-test("keeps the file gutter fixed while scrolling, selecting terminal tabs and closing files", () =>
-  withPage({ filePanel: true, fullWidth: true }, async (page) => {
-    const before = await fileMetrics(page);
-    const rail = page.locator('#file-panel [role="tablist"]');
-    await rail.hover();
-    await page.mouse.wheel(400, 0);
-    await page.waitForFunction(
-      () =>
-        document.querySelector('#file-panel [role="tablist"]').scrollLeft > 0,
-    );
-    assert.deepEqual(await fileMetrics(page), before);
-    await page.getByRole("tab", { name: "Terminal", exact: true }).click();
-    assert.equal(
-      await page
-        .getByRole("tab", { name: "Terminal", exact: true })
-        .getAttribute("aria-selected"),
-      "true",
-    );
-    await page
-      .getByRole("button", { name: "Close file-0.ts", exact: true })
-      .click();
-    assert.equal(
-      await page.getByRole("tab", { name: "file-0.ts", exact: true }).count(),
-      0,
-    );
-    assert.deepEqual(await fileMetrics(page), before);
-  }));
-
-test("reserves space for automatic full width at 640px but leaves floating and split panels alone", () =>
-  withPage({ filePanel: true }, async (page) => {
-    for (const width of [1200, 960, 959, 800, 641, 640, 600, 640, 641, 1000]) {
-      await page.setViewportSize({ width, height: 700 });
-      const result = await fileMetrics(page);
-      assert.equal(result.padding, width <= 640 ? 80 : 0);
-      assert.equal(result.header.height, 36);
-      assert.equal(result.content.left, result.header.left);
-      assert.equal(result.content.top, result.header.bottom);
-      assert.equal(result.closeRight, width);
-    }
-  }));
-
-for (const options of [
-  { platform: "Win32" },
-  { platform: "Linux x86_64" },
-  { hidden: false },
-]) {
-  test(`leaves file panels unchanged outside the macOS overlay: ${JSON.stringify(options)}`, () =>
-    withPage({ ...options, filePanel: true, fullWidth: true }, async (page) => {
-      const result = await fileMetrics(page);
-      const before = await page.evaluate(() => window.fixture.fileBaseline);
-      assert.equal(result.padding, 0);
-      assert.deepEqual(result.header, before.header);
-      assert.deepEqual(result.content, before.content);
-    }));
+export async function historyMetrics(page) {
+  return page.evaluate(() => {
+    const sidebar = document.querySelector("#sidebar");
+    const search = document.querySelector("#tree-search");
+    const tree = document.querySelector("#tree-container");
+    const header = document.querySelector(".sidebar-header");
+    const rect = (selector) =>
+      document.querySelector(selector).getBoundingClientRect().toJSON();
+    return {
+      sidebarHeight: sidebar.getBoundingClientRect().height,
+      padding: parseFloat(getComputedStyle(sidebar).paddingTop),
+      searchTop: search.getBoundingClientRect().top,
+      headerHeight: header.getBoundingClientRect().height,
+      headerLeftPadding: getComputedStyle(header).paddingLeft,
+      treeHeight: tree.clientHeight,
+      scrollHeight: document.documentElement.scrollHeight,
+      content: rect("#content"),
+      hamburgerTop: parseFloat(
+        getComputedStyle(document.querySelector("#hamburger")).top,
+      ),
+      mainMarkers: document.querySelectorAll("[data-pi-web-titlebar]").length,
+    };
+  });
 }

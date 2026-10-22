@@ -19,41 +19,11 @@ At startup, the app reuses an existing listener without taking ownership. Otherw
 
 The command is embedded in the application. Never put passwords, tokens, or other secrets directly in `--server-command`. The command must remain in the foreground; commands that daemonize and exit cannot be managed reliably.
 
-## DeepSeek Harness
-
-DeepSeek Harness normally requires `dsh web` to remain open in a terminal. A managed build turns it into a desktop-client workflow:
-
-```shell
-node dist/cli.js http://127.0.0.1:3080 \
-  --name "DeepSeek Harness" \
-  --identifier "com.example.dshweb" \
-  --server-port 3080 \
-  --server-command "dsh --profile web --no-open --host 127.0.0.1 --port 3080" \
-  --server-timeout 60 \
-  --hide-title-bar \
-  --traffic-light-x 2 \
-  --traffic-light-y 6 \
-  --drag-region-height 10 \
-  --targets dmg
-```
-
-Use a fixed port rather than `dsh web --port 0`, because the desktop client needs a stable URL. `--no-open` prevents DeepSeek Harness from also opening the system browser. The `dsh` executable must be available through the shell `PATH` used by the packaged application.
-
-Traffic-light coordinates require `--hide-title-bar` and apply only to macOS. For a frameless Windows/Linux client, use `--hide-window-decorations --drag-region-height 10`; traffic-light coordinates are ignored.
+Traffic-light coordinates require `--hide-title-bar` and apply only to macOS. For a frameless Windows/Linux client, use `--hide-window-decorations --drag-region-height 10`.
 
 ## Pi Web
 
-```shell
-node dist/cli.js http://127.0.0.1:30141 \
-  --name "Pi Web" \
-  --server-port 30141 \
-  --server-command "pi-web --hostname 127.0.0.1 --port 30141 --no-open" \
-  --hide-title-bar \
-  --traffic-light-x 2 \
-  --traffic-light-y 6 \
-  --drag-region-height 10 \
-  --targets dmg
-```
+See the [Pi Web build guide](../build/pi-web/README.md) for the complete command, resources and dedicated tests.
 
 ## Fork Maintenance Boundary
 
@@ -61,7 +31,7 @@ The CLI enhancement facade delegates to contracts, option parsing, server valida
 
 The native implementation lives in the `src-tauri/extensions/pake-enhancements` workspace crate. The application retains a runtime adapter after single-instance registration and a window-builder adapter shared by every window. Flattened configuration preserves the existing JSON fields. Window settings work independently of the optional `managed-server` feature; its dialog and process-management dependencies are enabled only for managed builds.
 
-Application recipes and runner targets live in `.github/managed-local-apps.json`. The release workflow derives its matrix and expected artifact filenames from this data. Add another application through a recipe rather than editing the builder. Existing identifiers and release names stay stable.
+`.github/managed-local-apps.json` lists recipe paths and generic runner targets. The Pi Web recipe lives in `build/pi-web/recipe.json`. The release workflow derives its matrix and expected artifact filenames from this data. Add another application through a recipe rather than editing the builder. Existing identifiers and release names stay stable.
 
 All upstream tests are retained. The enhancement suite has 12 TypeScript cases and four Rust process-lifecycle cases. `tests/integration/managed-local-app.mjs` uses one generic native fixture for ordinary builds, concurrent managed startup, CSP popups, minimized-window service survival and cleanup on exit. Pi Web injection tests are maintained separately.
 

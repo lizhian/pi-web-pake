@@ -19,41 +19,11 @@
 
 服务命令会编译进应用，不要在 `--server-command` 中直接写入密码、令牌等秘密。命令必须保持前台运行；自行 daemonize 后退出的命令无法可靠管理。
 
-## DeepSeek Harness
-
-DeepSeek Harness 通常需要在终端中持续运行 `dsh web`。以下构建会把它转换为桌面客户端工作流：
-
-```shell
-node dist/cli.js http://127.0.0.1:3080 \
-  --name "DeepSeek Harness" \
-  --identifier "com.example.dshweb" \
-  --server-port 3080 \
-  --server-command "dsh --profile web --no-open --host 127.0.0.1 --port 3080" \
-  --server-timeout 60 \
-  --hide-title-bar \
-  --traffic-light-x 2 \
-  --traffic-light-y 6 \
-  --drag-region-height 10 \
-  --targets dmg
-```
-
-这里必须使用固定端口，不能使用 `dsh web --port 0`，因为桌面客户端需要稳定 URL。`--no-open` 用于阻止 DeepSeek Harness 同时打开系统浏览器。打包后的应用所使用的 Shell `PATH` 必须能够找到 `dsh`。
-
-交通灯坐标必须配合 `--hide-title-bar` 使用，而且只在 macOS 生效。Windows/Linux 无边框客户端可以使用 `--hide-window-decorations --drag-region-height 10`；交通灯坐标会被忽略。
+交通灯坐标必须配合 `--hide-title-bar` 使用，而且只在 macOS 生效。Windows/Linux 无边框客户端可以使用 `--hide-window-decorations --drag-region-height 10`。
 
 ## Pi Web
 
-```shell
-node dist/cli.js http://127.0.0.1:30141 \
-  --name "Pi Web" \
-  --server-port 30141 \
-  --server-command "pi-web --hostname 127.0.0.1 --port 30141 --no-open" \
-  --hide-title-bar \
-  --traffic-light-x 2 \
-  --traffic-light-y 6 \
-  --drag-region-height 10 \
-  --targets dmg
-```
+完整构建命令、资源和专项测试见 [Pi Web 构建说明](../build/pi-web/README.md)。
 
 ## Fork 维护边界
 
@@ -61,7 +31,7 @@ CLI 增强入口委托 `bin/extensions/managed-local-app/` 内的公共类型、
 
 原生实现封装在 `src-tauri/extensions/pake-enhancements` workspace crate 中。应用只保留单实例插件之后的运行时入口，以及所有窗口共用的构建入口。通过 flatten 配置保留现有 JSON 字段。窗口定制独立于 `managed-server` feature；对话框和进程管理依赖仅在受管理服务构建中启用。
 
-应用配方与平台目标集中在 `.github/managed-local-apps.json`，发布流程据此生成构建矩阵和预期产物文件名。增加应用只需增加配方，现有应用标识和发布文件名保持兼容。
+`.github/managed-local-apps.json` 保存配方路径和通用平台目标；Pi Web 配方位于 `build/pi-web/recipe.json`，发布流程据此生成构建矩阵和预期产物文件名。增加应用只需增加配方，现有应用标识和发布文件名保持兼容。
 
 上游测试完整保留。增强单元测试为 12 个 TypeScript 用例和 4 个 Rust 进程生命周期用例；`tests/integration/managed-local-app.mjs` 通过同一个通用原生夹具验证普通构建、并发启动、CSP 弹窗、最小化后服务存活和退出清理。Pi Web 注入测试单独维护。
 

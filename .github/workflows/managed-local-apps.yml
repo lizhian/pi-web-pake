@@ -1,4 +1,4 @@
-name: Build Managed Local Apps
+name: Build Pi Web
 
 on:
   workflow_dispatch:
@@ -184,7 +184,7 @@ jobs:
           fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
           NODE
 
-      - name: Build managed local app
+      - name: Build Pi Web from recipe
         env:
           PAKE_BUILD_APP: ${{ matrix.app }}
           PAKE_BUILD_PLATFORM: ${{ matrix.platform }}
@@ -274,8 +274,8 @@ jobs:
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" \
               --target "$GITHUB_SHA" \
-              --title "Managed local apps $RELEASE_TAG" \
-              --notes "Managed local web clients for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. Each recipe executable must be available on the client PATH."
+              --title "Pi Web $RELEASE_TAG" \
+              --notes "Pi Web for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. The pi-web executable must be available on the client PATH. Build instructions: https://github.com/${{ github.repository }}/blob/${{ github.sha }}/build/pi-web/README.md"
           fi
 
           gh release upload "$RELEASE_TAG" release/* --clobber

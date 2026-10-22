@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ["bin/**", "src-tauri/**", "tests/**", ".github/**", "package.json", "pnpm-lock.yaml"]
+    paths: ["bin/**", "src-tauri/**", "tests/**", "build/pi-web/**", ".github/**", "package.json", "pnpm-lock.yaml"]
   pull_request:
-    paths: ["bin/**", "src-tauri/**", "tests/**", ".github/**", "package.json", "pnpm-lock.yaml"]
+    paths: ["bin/**", "src-tauri/**", "tests/**", "build/pi-web/**", ".github/**", "package.json", "pnpm-lock.yaml"]
 
 permissions:
   contents: read
@@ -41,6 +41,21 @@ jobs:
         run: |
           pnpm run cli:build
           pnpm exec vitest run
+      - name: Pi Web popup compatibility
+        run: node --test build/pi-web/tests/popup.test.mjs
+      - name: Install Pi Web browser test runtime
+        if: runner.os == 'macOS'
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pi-web-browser" --no-save --package-lock=false playwright@1.62.1
+          node "$RUNNER_TEMP/pi-web-browser/node_modules/playwright/cli.js" install chromium
+      - name: Pi Web browser compatibility
+        if: runner.os == 'macOS'
+        env:
+          PAKE_PLAYWRIGHT_MODULE: ${{ runner.temp }}/pi-web-browser/node_modules/playwright/index.mjs
+        run: node --test build/pi-web/tests/titlebar.test.mjs
+      - name: Pi Web native popup acceptance
+        if: runner.os == 'macOS'
+        run: node build/pi-web/tests/native-popup.mjs
       - name: Check workspace and feature compatibility
         working-directory: src-tauri
         run: |

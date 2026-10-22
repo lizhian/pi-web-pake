@@ -20,6 +20,12 @@ if (
   );
 }
 
+recipes.apps = recipes.apps.map((recipe) =>
+  JSON.parse(
+    fs.readFileSync(new URL(`../../${recipe}`, import.meta.url), "utf8"),
+  ),
+);
+
 export function createBuildPlans(app, build, releaseTag, appVersion) {
   if (
     !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(app.slug) ||
@@ -71,14 +77,16 @@ export function createBuildPlans(app, build, releaseTag, appVersion) {
       args.push(
         "--hide-title-bar",
         "--traffic-light-x",
-        "2",
+        app.trafficLightX,
         "--traffic-light-y",
-        "6",
+        app.trafficLightY,
       );
     else args.push("--hide-window-decorations");
     args.push(
       "--drag-region-height",
       app.dragRegionHeight,
+      ...(app.commonArgs ?? []),
+      ...(app.platformArgs?.[build.platform] ?? []),
       "--targets",
       target,
       "--json",
