@@ -46,6 +46,8 @@ node dist/cli.js http://127.0.0.1:30141 \
 
 六个构建任务生成八个安装包：macOS x64/ARM64 各一个 DMG，Windows x64/ARM64 各一个 MSI，Linux x64/ARM64 各一个 DEB 和 AppImage。发布前根据配方校验完整产物清单。
 
+同一天再次运行会覆盖已有日期版本：标签更新到本次构建提交，Release 说明和同名安装包同步替换，保留原 Release 链接。
+
 可先查看参数与预期产物，不执行构建：
 
 ```bash

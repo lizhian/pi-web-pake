@@ -262,20 +262,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            git fetch origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-            TAG_COMMIT="$(git rev-list -n 1 "$RELEASE_TAG")"
-            if [ "$TAG_COMMIT" != "$GITHUB_SHA" ]; then
-              echo "$RELEASE_TAG already points to $TAG_COMMIT, not $GITHUB_SHA."
-              exit 1
-            fi
-          fi
+          TAG_REF="refs/tags/$RELEASE_TAG"
+          TAG_OID="$(git ls-remote --refs origin "$TAG_REF" | cut -f1)"
+          git push --force-with-lease="$TAG_REF:$TAG_OID" origin "$GITHUB_SHA:$TAG_REF"
 
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --target "$GITHUB_SHA" \
-              --title "Pi Web $RELEASE_TAG" \
-              --notes "Pi Web for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. The pi-web executable must be available on the client PATH. Build instructions: https://github.com/${{ github.repository }}/blob/${{ github.sha }}/build/pi-web/README.md"
+          RELEASE_ARGS=(
+            --target "$GITHUB_SHA"
+            --title "Pi Web $RELEASE_TAG"
+            --notes "Pi Web for macOS, Windows, and Linux on x64 and ARM64. App version: $APP_VERSION. The pi-web executable must be available on the client PATH. Build instructions: https://github.com/${{ github.repository }}/blob/${{ github.sha }}/build/pi-web/README.md"
+          )
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" "${RELEASE_ARGS[@]}"
+          else
+            gh release create "$RELEASE_TAG" "${RELEASE_ARGS[@]}"
           fi
 
           gh release upload "$RELEASE_TAG" release/* --clobber
