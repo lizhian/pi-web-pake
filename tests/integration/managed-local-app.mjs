@@ -56,7 +56,15 @@ if (process.argv[2] === "--serve") {
     await current.close();
     return;
   }
-  if (enhanced) window.open("/csp", "enhancement-probe");
+  if (enhanced) {
+    if (${JSON.stringify(process.platform)} === "linux") {
+      const button = document.createElement("button");
+      button.textContent = "Open popup";
+      button.addEventListener("click", () => window.open("/csp", "enhancement-probe"));
+      document.body.append(button);
+      button.focus();
+    } else window.open("/csp", "enhancement-probe");
+  }
   await report("main");
   while (true) {
     const action = await (await fetch("/action", {cache:"no-store"})).text();
@@ -306,6 +314,31 @@ if (process.argv[2] === "--serve") {
         );
       }, `${stage} main page`);
       if (managed) {
+        if (process.platform === "linux") {
+          // Reuse libxdo from the existing Linux dependencies for a trusted keypress.
+          execFileSync("python3", [
+            "-c",
+            `
+import ctypes
+library = ctypes.CDLL("libxdo.so.3")
+library.xdo_new.argtypes = [ctypes.c_char_p]
+library.xdo_new.restype = ctypes.c_void_p
+library.xdo_get_focused_window_sane.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+library.xdo_get_pid_window.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+library.xdo_send_keysequence_window.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_char_p, ctypes.c_uint]
+library.xdo_free.argtypes = [ctypes.c_void_p]
+connection = library.xdo_new(None)
+assert connection, "Could not connect to the X11 display"
+try:
+    window = ctypes.c_ulong()
+    assert library.xdo_get_focused_window_sane(connection, ctypes.byref(window)) == 0, "Could not find the focused fixture window"
+    assert library.xdo_get_pid_window(connection, window.value) == ${app.child.pid}, "The native fixture window is not focused"
+    assert library.xdo_send_keysequence_window(connection, 0, b"Return", 0) == 0, "Could not activate the popup button"
+finally:
+    library.xdo_free(connection)
+`,
+          ]);
+        }
         await waitFor(
           () =>
             fs.access(path.join(directory, "popup.json")).then(
