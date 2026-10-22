@@ -34,9 +34,12 @@ jobs:
       - name: Add Windows ARM64 target
         if: matrix.os == 'windows-11-arm'
         run: rustup target add aarch64-pc-windows-msvc
-      - name: Install virtual display
+      - name: Install Linux runtime dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb dbus-x11 xdg-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb dbus-x11 xdg-utils gsettings-desktop-schemas
+          sudo glib-compile-schemas /usr/share/glib-2.0/schemas
       - name: Build and test CLI
         run: |
           pnpm run cli:build
