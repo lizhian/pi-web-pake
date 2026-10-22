@@ -39,23 +39,20 @@ describe('managed local app build plans', () => {
         expect(value('--safe-domain')).toBe('127.0.0.1:30141');
         expect(value('--server-port')).toBe('30141');
         expect(value('--server-timeout')).toBe('30');
-        expect(value('--drag-region-height')).toBe('10');
         expect(value('--icon')).toBe(
           build.platform === 'macos'
             ? 'build/pi-web/assets/pi_web.icns'
             : 'build/pi-web/assets/pi_web.png',
         );
-        expect(value('--inject')).toBe(
-          'build/pi-web/scripts/pi-web-inject.css,build/pi-web/scripts/pi-web-inject.js',
-        );
-        for (const file of [value('--icon'), ...value('--inject').split(',')]) {
-          expect(
-            fs.statSync(new URL(`../../${file}`, import.meta.url)).isFile(),
-          ).toBe(true);
-        }
+        const resources = [value('--icon')];
         if (build.platform === 'macos') {
+          expect(value('--inject')).toBe(
+            'build/pi-web/scripts/pi-web-inject.css,build/pi-web/scripts/pi-web-inject.js',
+          );
+          resources.push(...value('--inject').split(','));
           expect(value('--traffic-light-x')).toBe('11');
           expect(value('--traffic-light-y')).toBe('16');
+          expect(value('--drag-region-height')).toBe('10');
           expect(plan.args).toContain('--camera');
           expect(plan.args).toContain('--microphone');
           expect(plan.args).not.toContain('--hide-window-decorations');
@@ -64,11 +61,18 @@ describe('managed local app build plans', () => {
             '--hide-title-bar',
             '--traffic-light-x',
             '--traffic-light-y',
+            '--drag-region-height',
             '--camera',
             '--microphone',
+            '--inject',
           ]) {
             expect(plan.args).not.toContain(flag);
           }
+        }
+        for (const file of resources) {
+          expect(
+            fs.statSync(new URL(`../../${file}`, import.meta.url)).isFile(),
+          ).toBe(true);
         }
         for (const flag of [
           '--debug',

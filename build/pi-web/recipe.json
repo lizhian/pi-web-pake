@@ -5,11 +5,8 @@
   "url": "http://127.0.0.1:30141",
   "port": "30141",
   "command": "pi-web --hostname 127.0.0.1 --port 30141 --no-open",
-  "dragRegionHeight": "10",
   "macIcon": "build/pi-web/assets/pi_web.icns",
   "desktopIcon": "build/pi-web/assets/pi_web.png",
-  "trafficLightX": "11",
-  "trafficLightY": "16",
   "commonArgs": [
     "--allow-open-path",
     "--new-window",
@@ -17,11 +14,20 @@
     "--enable-find",
     "--safe-domain",
     "127.0.0.1:30141",
-    "--wasm",
-    "--inject",
-    "build/pi-web/scripts/pi-web-inject.css,build/pi-web/scripts/pi-web-inject.js"
+    "--wasm"
   ],
   "platformArgs": {
-    "macos": ["--camera", "--microphone"]
+    "macos": [
+      "--traffic-light-x",
+      "11",
+      "--traffic-light-y",
+      "16",
+      "--drag-region-height",
+      "10",
+      "--camera",
+      "--microphone",
+      "--inject",
+      "build/pi-web/scripts/pi-web-inject.css,build/pi-web/scripts/pi-web-inject.js"
+    ]
   }
 }

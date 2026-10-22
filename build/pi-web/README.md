@@ -1,8 +1,8 @@
 # Pi Web 桌面客户端
 
-Pi Web 的配方、图标、注入脚本和专项测试集中在本目录。界面增强通过 Pake 现有的 `--inject` 接口加载，系统打开授权通过通用增强参数 `--allow-open-path` 启用。
+Pi Web 的配方、图标、注入脚本和专项测试集中在本目录。macOS 界面增强通过 Pake 现有的 `--inject` 接口加载，系统打开授权通过通用增强参数 `--allow-open-path` 启用。
 
-文件树在悬停或键盘聚焦时显示“打开”图标，位于提及和下载按钮右侧。目录进入系统文件管理器，文件使用系统默认应用打开原路径。授权按应用的固定入口源生效，允许打开当前用户可访问的本地路径，包含隐藏项，范围不限于文件树根目录；普通浏览器不显示该按钮。
+macOS 文件树在悬停或键盘聚焦时显示“打开”图标，位于提及和下载按钮右侧。目录进入系统文件管理器，文件使用系统默认应用打开原路径。授权按应用的固定入口源生效，允许打开当前用户可访问的本地路径，包含隐藏项，范围不限于文件树根目录；普通浏览器不显示该按钮。
 
 ## 本地构建
 
@@ -42,7 +42,7 @@ node dist/cli.js http://127.0.0.1:30141 \
 
 [Build Pi Web 工作流](../../.github/workflows/managed-local-apps.yml)读取 [recipe.json](recipe.json)，通过通用构建脚本生成完整 CLI 参数数组。根注册表只保存配方路径和平台矩阵。
 
-所有平台启用新窗口、拖放、查找、safe-domain、WASM 和 CSS/JS 注入。macOS 使用 ICNS、隐藏标题栏、交通灯坐标 `11/16`、摄像头和麦克风权限；Windows/Linux 使用 PNG 和无边框窗口。CI 按上海日期生成版本，不传 `debug`、`iterative-build` 或 `install`。
+所有平台启用新窗口、拖放、查找、safe-domain 和 WASM。CSS/JS 注入仅在 macOS 启用；macOS 使用 ICNS、隐藏标题栏、交通灯坐标 `11/16`、拖拽区域高度 `10`、摄像头和麦克风权限。Windows/Linux 使用 PNG 和无边框窗口。CI 按上海日期生成版本，不传 `debug`、`iterative-build` 或 `install`。
 
 六个构建任务生成八个安装包：macOS x64/ARM64 各一个 DMG，Windows x64/ARM64 各一个 MSI，Linux x64/ARM64 各一个 DEB 和 AppImage。发布前根据配方校验完整产物清单。
 

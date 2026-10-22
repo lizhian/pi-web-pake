@@ -73,18 +73,9 @@ export function createBuildPlans(app, build, releaseTag, appVersion) {
       "--server-timeout",
       "30",
     ];
-    if (build.platform === "macos")
-      args.push(
-        "--hide-title-bar",
-        "--traffic-light-x",
-        app.trafficLightX,
-        "--traffic-light-y",
-        app.trafficLightY,
-      );
+    if (build.platform === "macos") args.push("--hide-title-bar");
     else args.push("--hide-window-decorations");
     args.push(
-      "--drag-region-height",
-      app.dragRegionHeight,
       ...(app.commonArgs ?? []),
       ...(app.platformArgs?.[build.platform] ?? []),
       "--targets",
