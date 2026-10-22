@@ -294,6 +294,11 @@
       "description": "macOS only: request microphone permission.",
       "default": false
     },
+    "allowOpenPath": {
+      "type": "boolean",
+      "description": "Allow packaged local pages and configured entry origins to open local paths, including hidden paths, with the system default application. Paths are not restricted to a project directory.",
+      "default": false
+    },
     "serverPort": {
       "type": "integer",
       "description": "Loopback port to probe and manage. Must be used with serverCommand.",

@@ -23,7 +23,7 @@ import {
 } from '@/utils/dir';
 import { PakeError } from '@/utils/error';
 import { LINUX_TARGET_TYPES, resolveLinuxBundleTargets } from '@/utils/targets';
-import { applyManagedLocalAppConfig } from '@/extensions/managed-local-app';
+import { applyEnhancementConfig } from '@/extensions/enhancements';
 
 /**
  * Pure transform from CLI options to the window-config slice that gets
@@ -653,7 +653,7 @@ export async function mergeConfig(
   await mergeIcons(options, name, tauriConf, platform, safeAppName);
 
   await injectCustomCode(options, tauriConf);
-  applyManagedLocalAppConfig(options, tauriConf, platform);
+  applyEnhancementConfig(options, tauriConf, platform);
 
   if (platform === 'darwin') {
     await generateMacEntitlements(camera, microphone);

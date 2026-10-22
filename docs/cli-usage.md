@@ -627,6 +627,16 @@ Supports both comma-separated and multiple option formats:
 --inject ./tools/style.css
 ```
 
+#### [allow-open-path]
+
+Enable `plugin:opener|open_path` for packaged local pages and the app's configured HTTP(S) entry origins. Disabled by default. This is a build option; rebuild the app to change it. The JSON config field is `allowOpenPath`.
+
+```bash
+pake http://127.0.0.1:30141 --name MyApp --allow-open-path
+```
+
+Page scripts call `window.__TAURI__.core.invoke('plugin:opener|open_path', { path })` to open a file or directory with its system default application. The scope includes hidden paths and all local paths accessible to the app user; it is not restricted to a project directory. Authorization applies to the configured entry origins (scheme, host and port) and `pake` / `pake-*` webviews. Redirects, restored URLs and `--safe-domain` do not expand the grant. Selecting a different application and other opener operations are not authorized by this option.
+
 #### [download-dir]
 
 Choose where the packaged app saves downloads. Both regular link downloads and native browser downloads use this directory; the default is the system Downloads folder.

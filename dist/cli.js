@@ -1226,6 +1226,23 @@ function applyManagedLocalAppConfig(options, tauriConf, platform) {
     };
 }
 
+const ENHANCEMENT_DEFAULTS = {
+    ...MANAGED_LOCAL_APP_DEFAULTS,
+    allowOpenPath: false,
+};
+function addEnhancementOptions(command, defaults) {
+    return addManagedLocalAppOptions(command, defaults).option('--allow-open-path', 'Allow app pages to open local paths with the system default application', defaults.allowOpenPath);
+}
+function applyEnhancementConfig(options, tauriConf, platform) {
+    applyManagedLocalAppConfig(options, tauriConf, platform);
+    if (options.allowOpenPath) {
+        tauriConf.pake.allow_open_path = true;
+    }
+    else {
+        delete tauriConf.pake.allow_open_path;
+    }
+}
+
 /**
  * Pure transform from CLI options to the window-config slice that gets
  * merged into pake.json. Exposed for snapshot testing so option drift
@@ -1665,7 +1682,7 @@ async function mergeConfig(url, options, tauriConf) {
     const safeAppName = getSafeAppName(name);
     await mergeIcons(options, name, tauriConf, platform, safeAppName);
     await injectCustomCode(options, tauriConf);
-    applyManagedLocalAppConfig(options, tauriConf, platform);
+    applyEnhancementConfig(options, tauriConf, platform);
     if (platform === 'darwin') {
         await generateMacEntitlements(camera, microphone);
     }
@@ -3759,7 +3776,7 @@ async function handleOptions(options, url) {
 }
 
 const DEFAULT_PAKE_OPTIONS = {
-    ...MANAGED_LOCAL_APP_DEFAULTS,
+    ...ENHANCEMENT_DEFAULTS,
     icon: '',
     height: 780,
     width: 1200,
@@ -3983,7 +4000,7 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
         .addOption(new Option('--microphone', 'Request microphone permission on macOS')
         .default(DEFAULT_PAKE_OPTIONS.microphone)
         .hideHelp());
-    return addManagedLocalAppOptions(configuredProgram, DEFAULT_PAKE_OPTIONS)
+    return addEnhancementOptions(configuredProgram, DEFAULT_PAKE_OPTIONS)
         .version(packageJson.version, '-v, --version')
         .configureHelp({
         sortSubcommands: true,

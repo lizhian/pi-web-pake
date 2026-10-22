@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { program, InvalidArgumentError, Option } from 'commander';
 import packageJson from '../../package.json';
 import { DEFAULT_PAKE_OPTIONS as DEFAULT } from '../defaults';
-import { addManagedLocalAppOptions } from '../extensions/managed-local-app';
+import { addEnhancementOptions } from '../extensions/enhancements';
 import { validateNumberInput, validateUrlInput } from '../utils/validate';
 
 export function getCliProgram() {
@@ -341,7 +341,7 @@ ${green('|_|   \\__,_|_|\\_\\___|  can turn any webpage into a desktop app with 
         .hideHelp(),
     );
 
-  return addManagedLocalAppOptions(configuredProgram, DEFAULT)
+  return addEnhancementOptions(configuredProgram, DEFAULT)
     .version(packageJson.version, '-v, --version')
     .configureHelp({
       sortSubcommands: true,

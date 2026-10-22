@@ -1,14 +1,16 @@
 import type {
-  ManagedLocalAppCliOptions,
   ManagedLocalAppResolvedOptions,
-  ManagedPakeConfig,
   ManagedWindowConfig,
 } from './extensions/managed-local-app/contracts.js';
+import type {
+  EnhancementCliOptions,
+  EnhancementPakeConfig,
+} from './extensions/enhancements.js';
 
 export type SupportedPlatform = 'win32' | 'darwin' | 'linux';
 export type TauriPlatform = 'windows' | 'macos' | 'linux';
 
-export interface PakeCliOptions extends ManagedLocalAppCliOptions {
+export interface PakeCliOptions extends EnhancementCliOptions {
   // Application name
   name?: string;
 
@@ -222,7 +224,7 @@ export interface WindowConfig extends ManagedWindowConfig {
   new_window: boolean;
 }
 
-export interface PakeConfig extends ManagedPakeConfig {
+export interface PakeConfig extends EnhancementPakeConfig {
   windows: WindowConfig[];
   user_agent: PlatformSpecific<string>;
   system_tray: PlatformSpecific<boolean>;

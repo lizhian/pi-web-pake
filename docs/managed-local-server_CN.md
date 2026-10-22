@@ -27,13 +27,13 @@
 
 ## Fork 维护边界
 
-CLI 增强入口委托 `bin/extensions/managed-local-app/` 内的公共类型、参数解析、服务校验和窗口覆盖。配置加载器只分发一次增强字段；上游原有数值校验和精确 origin 权限生成继续负责原有行为。
+CLI 增强入口 `bin/extensions/enhancements.ts` 委托 `bin/extensions/managed-local-app/` 处理受管理服务，并承接独立的 `--allow-open-path` 开关。配置加载器只分发一次增强字段；上游原有数值校验和精确 origin 权限生成继续负责原有行为。
 
-原生实现封装在 `src-tauri/extensions/pake-enhancements` workspace crate 中。应用只保留单实例插件之后的运行时入口，以及所有窗口共用的构建入口。通过 flatten 配置保留现有 JSON 字段。窗口定制独立于 `managed-server` feature；对话框和进程管理依赖仅在受管理服务构建中启用。
+原生实现封装在 `src-tauri/extensions/pake-enhancements` workspace crate 中。应用只保留单实例插件之后的运行时入口、复用上游固定入口源的 capability 接入，以及所有窗口共用的构建入口。通过 flatten 配置保留现有 JSON 字段。窗口定制和路径打开授权独立于 `managed-server` feature；对话框和进程管理依赖仅在受管理服务构建中启用。
 
 `.github/managed-local-apps.json` 保存配方路径和通用平台目标；Pi Web 配方位于 `build/pi-web/recipe.json`，发布流程据此生成构建矩阵和预期产物文件名。增加应用只需增加配方，现有应用标识和发布文件名保持兼容。
 
-上游测试完整保留。增强单元测试为 12 个 TypeScript 用例和 4 个 Rust 进程生命周期用例；`tests/integration/managed-local-app.mjs` 通过同一个通用原生夹具验证普通构建、并发启动、CSP 弹窗、最小化后服务存活和退出清理。Pi Web 注入测试单独维护。
+上游测试完整保留。增强测试覆盖 CLI/配置映射、原生授权和进程生命周期；`tests/integration/managed-local-app.mjs` 通过同一个通用原生夹具验证普通构建、并发启动、CSP 弹窗、最小化后服务存活和退出清理。macOS 的独立原生验收 `tests/integration/enhancement-open-path.mjs` 使用同一夹具依次验证 `--allow-open-path` 关闭和启用时的 WebView 权限与系统打开行为；上游 IPC 验收保持原样并单独运行一次。Pi Web 注入测试单独维护。
 
 同步上游后执行：
 
@@ -48,6 +48,9 @@ cargo test --locked --workspace --lib --features managed-server,runtime-template
 cargo clippy --locked --workspace --all-targets --features managed-server,runtime-template -- -D warnings
 cd ..
 node tests/integration/managed-local-app.mjs
+# macOS only
+node tests/integration/ipc-security.mjs
+node tests/integration/enhancement-open-path.mjs
 ```
 
 Enhancement Compatibility 工作流在 macOS、Linux、Windows x64 和 Windows ARM64 上执行四种 feature 组合的测试、Clippy 和原生验收；ARM64 任务还检查实际 MSI 的平台元数据。Linux 原生验收使用 Xvfb 和 D-Bus 会话。

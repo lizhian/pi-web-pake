@@ -27,13 +27,13 @@ See the [Pi Web build guide](../build/pi-web/README.md) for the complete command
 
 ## Fork Maintenance Boundary
 
-The CLI enhancement facade delegates to contracts, option parsing, server validation and window overrides under `bin/extensions/managed-local-app/`. The config loader dispatches extension fields once; upstream numeric validation and origin capability generation remain authoritative for upstream behavior.
+The CLI enhancement facade in `bin/extensions/enhancements.ts` delegates managed-service behavior to `bin/extensions/managed-local-app/` and handles the independent `--allow-open-path` opt-in. The config loader dispatches extension fields once; upstream numeric validation and origin capability generation remain authoritative for upstream behavior.
 
-The native implementation lives in the `src-tauri/extensions/pake-enhancements` workspace crate. The application retains a runtime adapter after single-instance registration and a window-builder adapter shared by every window. Flattened configuration preserves the existing JSON fields. Window settings work independently of the optional `managed-server` feature; its dialog and process-management dependencies are enabled only for managed builds.
+The native implementation lives in the `src-tauri/extensions/pake-enhancements` workspace crate. The application retains a runtime adapter after single-instance registration, a capability adapter reusing the upstream configured origins, and a window-builder adapter shared by every window. Flattened configuration preserves the existing JSON fields. Window settings and path-opening authorization work independently of the optional `managed-server` feature; its dialog and process-management dependencies are enabled only for managed builds.
 
 `.github/managed-local-apps.json` lists recipe paths and generic runner targets. The Pi Web recipe lives in `build/pi-web/recipe.json`. The release workflow derives its matrix and expected artifact filenames from this data. Add another application through a recipe rather than editing the builder. Existing identifiers and release names stay stable.
 
-All upstream tests are retained. The enhancement suite has 12 TypeScript cases and four Rust process-lifecycle cases. `tests/integration/managed-local-app.mjs` uses one generic native fixture for ordinary builds, concurrent managed startup, CSP popups, minimized-window service survival and cleanup on exit. Pi Web injection tests are maintained separately.
+All upstream tests are retained. Enhancement tests cover CLI/config mapping, native authorization and process lifecycles. `tests/integration/managed-local-app.mjs` uses one generic native fixture for ordinary builds, concurrent managed startup, CSP popups, minimized-window service survival and cleanup on exit. On macOS, `tests/integration/enhancement-open-path.mjs` uses one fixture to verify real WebView permissions and system opening with the opt-in disabled and enabled. The upstream IPC acceptance remains unchanged and runs separately once. Pi Web injection tests are maintained separately.
 
 After syncing upstream, run:
 
@@ -48,6 +48,9 @@ cargo test --locked --workspace --lib --features managed-server,runtime-template
 cargo clippy --locked --workspace --all-targets --features managed-server,runtime-template -- -D warnings
 cd ..
 node tests/integration/managed-local-app.mjs
+# macOS only
+node tests/integration/ipc-security.mjs
+node tests/integration/enhancement-open-path.mjs
 ```
 
 The Enhancement Compatibility workflow runs the four feature configurations and Clippy on macOS, Linux, Windows x64 and Windows ARM64, then runs the native fixture. The ARM64 job also verifies a real MSI's platform metadata. Linux native acceptance uses Xvfb and a D-Bus session.

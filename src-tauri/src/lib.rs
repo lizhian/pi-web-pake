@@ -361,7 +361,12 @@ pub fn run_app() {
         app_builder,
         &pake_config.enhancements,
         multi_instance,
-    );
+        context.config_mut(),
+    )
+    .unwrap_or_else(|error| {
+        eprintln!("[Pake] Invalid enhancement configuration: {error}");
+        std::process::exit(1);
+    });
 
     // Reveal hidden windows after the first real document finishes loading so
     // slow WKWebView cold starts do not expose an empty but interactive shell.
@@ -423,9 +428,10 @@ pub fn run_app() {
         .setup(move |app| {
             // Grant remote IPC only to the immutable, packaged entry origins,
             // before any webview can start loading untrusted content.
-            if let Some(capability) = pake_config.remote_capability()? {
-                app.add_capability(capability)?;
-            }
+            app.add_capability(pake_enhancements::runtime_capabilities(
+                &pake_config.enhancements,
+                pake_config.remote_capability()?,
+            ))?;
             app.manage(MultiWindowState::new(
                 pake_config.clone(),
                 tauri_config.clone(),
@@ -557,6 +563,10 @@ pub fn run_app() {
 pub fn run() {
     run_app()
 }
+
+#[cfg(test)]
+#[path = "../extensions/pake-enhancements/tests/host/open_path.rs"]
+mod enhancement_open_path_tests;
 
 #[cfg(test)]
 mod tests {

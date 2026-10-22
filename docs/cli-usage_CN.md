@@ -621,6 +621,16 @@ pake ./my-app/index.html --name "my-app" --use-local-file
 --inject ./tools/style.css
 ```
 
+#### [allow-open-path]
+
+允许打包的本地页面和应用配置的 HTTP(S) 入口源调用 `plugin:opener|open_path`，默认关闭。这是打包参数，修改后需要重新构建应用；JSON 配置对应 `allowOpenPath`。
+
+```bash
+pake http://127.0.0.1:30141 --name MyApp --allow-open-path
+```
+
+网页脚本通过 `window.__TAURI__.core.invoke('plugin:opener|open_path', { path })`，使用系统默认应用打开文件或目录。路径范围包含隐藏项及当前用户可访问的所有本地路径，不限于项目目录。授权按固定入口源的协议、主机和端口生效，限定 `pake` / `pake-*` webview；跳转、恢复地址和 `--safe-domain` 不扩大授权。此选项不授权指定其他应用或调用其他 opener 操作。
+
 #### [download-dir]
 
 指定打包后应用的默认下载目录，普通链接下载和浏览器原生下载都用这个目录，未指定时沿用系统 Downloads 目录。
