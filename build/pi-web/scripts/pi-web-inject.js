@@ -412,12 +412,15 @@
     if (!element || getComputedStyle(element).display !== "flex") return false;
     const button = element.firstElementChild;
     const height = element.getBoundingClientRect().height;
+    const buttonRect = button?.getBoundingClientRect();
     return (
       height >= 35 &&
       height <= 37 &&
       button?.matches("button[aria-label]") &&
-      button.style.width === "36px" &&
-      button.style.height === "36px"
+      buttonRect.width >= 35 &&
+      buttonRect.width <= 37 &&
+      buttonRect.height >= 35 &&
+      buttonRect.height <= 37
     );
   }
 

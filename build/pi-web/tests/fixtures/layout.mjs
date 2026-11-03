@@ -12,7 +12,7 @@ export async function withPage(browser, options, run) {
     await page.addStyleTag({
       // Relevant Pi Web 0.12.2 rules; its fitting algorithm is retained below.
       content: `
-        :root { --border:#444; --bg-panel:#222; --bg:#1a1a1a; }
+        :root { --border:#444; --bg-panel:#222; --bg:#1a1a1a; --top-bar-height:36px; }
         body { margin: 0; font: 12px Arial; }
         button { font: inherit; }
         #layout { display: flex; height: 700px; }
@@ -131,7 +131,9 @@ export async function withPage(browser, options, run) {
         [
           make("button", {
             "aria-label": "Hide sidebar",
-            style: "width:36px;height:36px;flex:none;",
+            style: options.variableToolbarSize
+              ? "width:var(--top-bar-height);height:var(--top-bar-height);flex:none;"
+              : "width:36px;height:36px;flex:none;",
             text: "☰",
           }),
           make("button", {

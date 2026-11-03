@@ -19,6 +19,13 @@ before(async () => {
 });
 after(async () => browser?.close());
 
+test("recognizes CSS variable toolbar dimensions in Pi Web 0.14.2", async () => {
+  await withPage(browser, { variableToolbarSize: true }, async (page) => {
+    assert.equal(await page.locator("[data-pi-web-titlebar]").count(), 2);
+    assert.equal((await metrics(page)).gutter, 80);
+  });
+});
+
 test("keeps titlebars usable across states, remounts, reinjection and sidebar transitions", async () => {
   await withPage(browser, {}, async (page) => {
     assert.equal((await metrics(page)).gutter, 80);
