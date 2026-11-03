@@ -1,6 +1,6 @@
 [package]
 name = "pake"
-version = "3.17.6"
+version = "3.17.8"
 description = "🤱🏻 Turn any webpage into a desktop app with Rust."
 authors = ["Tw93"]
 license = "GPL-3.0-or-later"
@@ -80,6 +80,8 @@ webview2-com = "0.38"
 windows-core = "0.61.2"
 
 [features]
+# Opt-in native Windows test harness; not enabled by packaged apps.
+native-download-probe = []
 # this feature is used for development builds from development cli
 cli-build = []
 # Prebuilt template that reads a pake-runtime folder at launch: Contents/Resources
@@ -103,3 +105,8 @@ codegen-units = 1
 lto = "thin"
 opt-level = "z"
 strip = true
+
+# Debug info only for the pake crate: a clean debug build drops from 3.5G to 2.4G,
+# backtraces and breakpoints in pake code are unchanged.
+[profile.dev.package."*"]
+debug = false

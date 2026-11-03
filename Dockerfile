@@ -26,7 +26,12 @@ RUN rustc --version && echo "Rust version verified"
 
 # Share the system toolchain layer between compilation and the final image.
 FROM base AS cargo-builder
-COPY . /pake
+# Only what the Rust build reads, so a change elsewhere (docs, CLI sources,
+# the contributors image) keeps the compiled dependency layer cached.
+# frontendDist points at ../dist, which only has to exist here.
+COPY rust-toolchain.toml /pake/
+COPY src-tauri /pake/src-tauri
+RUN mkdir -p /pake/dist
 WORKDIR /pake/src-tauri
 # Build cargo packages and store cache
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

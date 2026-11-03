@@ -47,8 +47,8 @@ For CLI or Rust-template fixes that must reach npm without an app release. The v
 1. [ ] Bump all four version files, `pnpm run cli:build`, stage the version files and `git add -f dist/cli.js`.
 2. [ ] `pnpm run release:check` (already includes vitest). For a Rust-template fix, also run the narrow current-platform Rust check.
 3. [ ] Commit `chore: bump version to VX.Y.Z`, push `main`, record `<publish-sha>` with `git rev-parse HEAD`.
-4. [ ] Wait for `gh run list --workflow=quality-and-test.yml --commit <publish-sha> --limit 3 --json databaseId,headSha,status,conclusion` to be `completed` / `success`; for Rust-template changes also `Full Tauri Build (windows-latest)`.
-5. [ ] `gh workflow run npm-publish.yml --ref main -f expected_sha=<publish-sha> -f quality_run_id=<quality-run-id>`. If `main` moved, wait for the new head's own Quality run.
+4. [ ] Wait for `gh run list --workflow=quality-and-test.yml --commit <publish-sha> --limit 3 --json databaseId,headSha,status,conclusion` to be `completed` / `success`; for Rust-template changes also `Full Tauri Build (windows-latest)`; a `<publish-sha>` without its own run (docs-only, or the `[skip ci]` bot commit) needs one dispatched first.
+5. [ ] `gh workflow run npm-publish.yml --ref main -f expected_sha=<publish-sha> -f quality_run_id=<quality-run-id>`. If `main` moved, the new head needs its own green Quality run; a docs-only head or the `[skip ci]` bot commit gets none automatically, so dispatch one with `gh workflow run quality-and-test.yml --ref main`.
 6. [ ] Poll `gh run view <run-id> --json headSha,status,conclusion`; `headSha` and the npm `gitHead` must both equal `<publish-sha>`.
 7. [ ] Issue closeout per AGENTS.md; for a Rust-template fix, tell users to rebuild their app after upgrading.
 

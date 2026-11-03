@@ -19,7 +19,7 @@ import { dir } from 'tmp-promise';
 import { fileTypeFromBuffer } from 'file-type';
 
 var name = "pake-cli";
-var version = "3.17.6";
+var version = "3.17.8";
 var description = "Turn any website into a lightweight desktop app with one command. 一键把网站打包成轻量桌面应用。";
 var homepage = "https://pake.run";
 var engines = {
@@ -97,7 +97,6 @@ var devDependencies = {
 	"@rollup/plugin-commonjs": "^29.0.0",
 	"@rollup/plugin-json": "^6.1.0",
 	"@rollup/plugin-replace": "^6.0.3",
-	"@rollup/plugin-terser": "^0.4.4",
 	"@types/fs-extra": "^11.0.4",
 	"@types/node": "^25.3.2",
 	"@types/prompts": "^2.4.9",
@@ -106,10 +105,11 @@ var devDependencies = {
 	"cross-env": "^10.1.0",
 	prettier: "^3.8.1",
 	rollup: "^4.59.0",
-	"rollup-plugin-typescript2": "^0.36.0",
+	"rollup-plugin-typescript2": "^0.37.0",
 	tslib: "^2.8.1",
 	typescript: "^5.9.3",
-	vitest: "^4.0.18"
+	vite: "^7.3.7",
+	vitest: "^4.1.12"
 };
 var pnpm = {
 	overrides: {
@@ -586,10 +586,19 @@ async function enterBuildWorkspace() {
 
 async function terminateBuildTree(pid) {
     if (process.platform === 'win32') {
-        await execa('taskkill', ['/pid', String(pid), '/T', '/F'], {
-            timeout: 5000,
-            windowsHide: true,
-        });
+        try {
+            await execa('taskkill', ['/pid', String(pid), '/T', '/F'], {
+                timeout: 5000,
+                windowsHide: true,
+            });
+        }
+        catch (error) {
+            // 128 is "process not found": a failed build has usually exited before
+            // it rejects. Treating that as unconfirmed kept the cache lock, and
+            // every later build refused to start until it was deleted by hand.
+            if (error.exitCode !== 128)
+                throw error;
+        }
         return;
     }
     const killGroup = (signal) => {

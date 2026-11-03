@@ -727,6 +727,17 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   function downloadFile(url, filename) {
+    // download attributes reliably force same-origin resources to save instead
+    // of navigating. Cross-origin resources retain the HTTP fallback because
+    // browsers can ignore their download attribute (including PDFs and images).
+    if (
+      window.pakeNativeDownloads === true &&
+      (isSpecialDownload(url) ||
+        new URL(url, window.location.href).origin === window.location.origin)
+    ) {
+      triggerNativeDownload(url, filename);
+      return Promise.resolve();
+    }
     return invoke("download_file", {
       params: {
         url,
@@ -1617,10 +1628,24 @@ function setDefaultZoom() {
   }
 }
 
+// Browsers decode the last URL path segment when naming a download. Keep the
+// encoded form when decoding fails or yields a path separator, a character
+// Windows rejects in file names, or a control/format character.
+function decodeFilenameSegment(segment) {
+  try {
+    const decoded = decodeURIComponent(segment);
+    return /[\\/:*?"<>|\p{Cc}\p{Cf}]/u.test(decoded) ? segment : decoded;
+  } catch (e) {
+    return segment;
+  }
+}
+
 function getFilenameFromUrl(url) {
   try {
     const urlPath = new URL(url).pathname;
-    let filename = urlPath.substring(urlPath.lastIndexOf("/") + 1);
+    let filename = decodeFilenameSegment(
+      urlPath.substring(urlPath.lastIndexOf("/") + 1),
+    );
 
     // If no filename or no extension, generate one
     if (!filename || !filename.includes(".")) {

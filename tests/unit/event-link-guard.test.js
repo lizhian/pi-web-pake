@@ -8,6 +8,7 @@ function loadEventHelpers({
   userAgent = "Mozilla/5.0",
   initialZoom = null,
   downloadError = null,
+  nativeDownloads = false,
 } = {}) {
   const source = ["link_policy.js", "event.js"]
     .map((file) =>
@@ -108,6 +109,7 @@ function loadEventHelpers({
       isAuthLink: () => false,
       isAuthPopup: () => false,
       pakeConfig: {},
+      pakeNativeDownloads: nativeDownloads,
     },
     document: {
       addEventListener: registerListener,
@@ -172,6 +174,51 @@ function makeClickEvent(anchor) {
 }
 
 describe("event link guard", () => {
+  it("uses native Windows downloads once for same-origin files without IPC", () => {
+    const context = loadEventHelpers({
+      withTauri: true,
+      nativeDownloads: true,
+    });
+    runDomReady(context);
+    const anchor = makeAnchor("https://example.com/report.pdf", "_self");
+    anchor.download = "report.pdf";
+    const click = makeClickEvent(anchor);
+    getClickGuard(context)(click);
+    expect(click.preventDefault).toHaveBeenCalledOnce();
+    expect(context.nativeDownloadClicks).toEqual([[anchor.href, "report.pdf"]]);
+    expect(
+      context.invokeCalls.filter(([command]) => command === "download_file"),
+    ).toEqual([]);
+  });
+
+  it("keeps cross-origin forced downloads on HTTP when the browser may preview them", () => {
+    const context = loadEventHelpers({
+      withTauri: true,
+      nativeDownloads: true,
+    });
+    runDomReady(context);
+    const anchor = makeAnchor("https://cdn.example.com/report.pdf", "_self");
+    anchor.download = "report.pdf";
+    getClickGuard(context)(makeClickEvent(anchor));
+    expect(context.nativeDownloadClicks).toEqual([]);
+    expect(
+      context.invokeCalls.filter(([command]) => command === "download_file"),
+    ).toEqual([
+      [
+        "download_file",
+        {
+          params: {
+            url: anchor.href,
+            filename: "report.pdf",
+            language: "en-US",
+            user_agent: "Mozilla/5.0",
+            page_url: "https://example.com/app",
+          },
+        },
+      ],
+    ]);
+  });
+
   it.each([
     'download_file not allowed on window "pake", webview "pake", URL: https://other.example/',
     "Command download_file not allowed by ACL",
@@ -877,5 +924,60 @@ describe("getFilenameFromUrl data URI extension", () => {
     const filename = context.getFilenameFromUrl("data:image/png,rawdata");
     expect(filename).toMatch(/^image-.*\.png$/);
     expect(filename).not.toContain("data:image/");
+  });
+});
+
+describe("getFilenameFromUrl percent-encoded path", () => {
+  it("decodes the file name the way browsers name downloads", () => {
+    const context = loadEventHelpers();
+    expect(
+      context.getFilenameFromUrl(
+        "https://example.com/files/Annual%20Report%202026.pdf",
+      ),
+    ).toBe("Annual Report 2026.pdf");
+    expect(
+      context.getFilenameFromUrl("https://example.com/%E6%8A%A5%E5%91%8A.pdf"),
+    ).toBe("报告.pdf");
+  });
+
+  it.each(["a%2F..%2Fsecret.pdf", "bad%E0%A4.pdf", "%E2%80%AEfdp.pdf"])(
+    "keeps the encoded name when decoding is unsafe or malformed: %s",
+    (name) => {
+      const context = loadEventHelpers();
+      expect(
+        context.getFilenameFromUrl(`https://example.com/files/${name}`),
+      ).toBe(name);
+    },
+  );
+
+  it("passes the decoded name to download_file", () => {
+    const context = loadEventHelpers({ withTauri: true });
+    runDomReady(context);
+    const anchor = makeAnchor(
+      "https://example.com/files/Annual%20Report.pdf",
+      "_self",
+    );
+    getClickGuard(context)(makeClickEvent(anchor));
+    expect(
+      context.invokeCalls
+        .filter(([command]) => command === "download_file")
+        .map(([, payload]) => payload.params.filename),
+    ).toEqual(["Annual Report.pdf"]);
+  });
+
+  it("names native Windows downloads with the decoded name", () => {
+    const context = loadEventHelpers({
+      withTauri: true,
+      nativeDownloads: true,
+    });
+    runDomReady(context);
+    const anchor = makeAnchor(
+      "https://example.com/files/%E6%8A%A5%E5%91%8A%202026.pdf",
+      "_self",
+    );
+    getClickGuard(context)(makeClickEvent(anchor));
+    expect(context.nativeDownloadClicks).toEqual([
+      [anchor.href, "报告 2026.pdf"],
+    ]);
   });
 });

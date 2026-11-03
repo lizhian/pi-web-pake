@@ -22,7 +22,7 @@ on:
       url:
         description: "App URL"
         required: true
-        default: "https://twitter.com/"
+        default: "https://x.com/"
       icon:
         description: "App Icon"
         required: false
@@ -63,7 +63,7 @@ on:
         description: "App URL"
         required: true
         type: string
-        default: "https://twitter.com/"
+        default: "https://x.com/"
       icon:
         description: "App Icon"
         type: string
